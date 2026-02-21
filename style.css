@@ -1,32 +1,38 @@
 /* ─── Variables ─────────────────────────────────────────────────────────────── */
 :root {
-  --bg:           #0d1117;
-  --bg2:          #161b22;
-  --bg3:          #1f2937;
-  --border:       #30363d;
-  --text:         #c9d1d9;
-  --text-dim:     #8b949e;
-  --text-bright:  #f0f6fc;
-  --accent:       #58a6ff;
-  --green:        #3fb950;
-  --red:          #f85149;
-  --orange:       #d29922;
-  --purple:       #bc8cff;
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #1f2937;
+  --border: #30363d;
+  --text: #c9d1d9;
+  --text-dim: #8b949e;
+  --text-bright: #f0f6fc;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --orange: #d29922;
+  --purple: #bc8cff;
 
-  --sync-color:   #58a6ff;
-  --async-color:  #3fb950;
+  --sync-color: #58a6ff;
+  --async-color: #3fb950;
   --stress-color: #f85149;
-  --node-color:   #1f2937;
-  --node-border:  #374151;
+  --node-color: #1f2937;
+  --node-border: #374151;
 }
 
 /* ─── Reset ─────────────────────────────────────────────────────────────────── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
 
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: 'Monoid', 'JetBrains Mono', 'Fira Code', monospace;
+  font-family: "Monoid", "JetBrains Mono", "Fira Code", monospace;
   font-size: 13px;
   line-height: 1.6;
   min-height: 100vh;
@@ -54,8 +60,16 @@ h1 {
   font-weight: 700;
   letter-spacing: 0.05em;
 }
-.brand-wom { color: var(--accent); }
-.brand-bat { color: var(--text-dim); }
+.brand-wom {
+  color: var(--accent);
+}
+.brand-bat {
+  color: var(--text-dim);
+}
+.version-display {
+  font-size: 10px;
+  color: var(--text-dim);
+}
 .seed-display {
   font-size: 12px;
   color: var(--text-dim);
@@ -64,7 +78,9 @@ h1 {
   user-select: all;
   text-decoration: none;
 }
-.seed-display:hover { color: var(--text); }
+.seed-display:hover {
+  color: var(--text);
+}
 
 /* ─── Panels ────────────────────────────────────────────────────────────────── */
 .panel {
@@ -115,9 +131,15 @@ h1 {
   color: var(--text-dim);
   margin-bottom: 12px;
 }
-.legend-sync   { color: var(--sync-color); }
-.legend-async  { color: var(--async-color); }
-.legend-stress { color: var(--stress-color); }
+.legend-sync {
+  color: var(--sync-color);
+}
+.legend-async {
+  color: var(--async-color);
+}
+.legend-stress {
+  color: var(--stress-color);
+}
 
 #graph-container {
   overflow-x: auto;
@@ -129,10 +151,12 @@ h1 {
 
 /* ─── SVG Node styles ───────────────────────────────────────────────────────── */
 .node-rect {
-  fill:   var(--node-color);
+  fill: var(--node-color);
   stroke: var(--node-border);
   stroke-width: 1.5;
-  transition: stroke 0.15s, stroke-width 0.15s;
+  transition:
+    stroke 0.15s,
+    stroke-width 0.15s;
 }
 .node:hover .node-rect {
   stroke: var(--accent);
@@ -145,12 +169,12 @@ h1 {
 .node--selected .node-rect {
   stroke: var(--accent);
   stroke-width: 2.5;
-  filter: drop-shadow(0 0 6px rgba(88,166,255,0.4));
+  filter: drop-shadow(0 0 6px rgba(88, 166, 255, 0.4));
 }
 .node--correct .node-rect {
   stroke: var(--green);
   stroke-width: 2.5;
-  filter: drop-shadow(0 0 8px rgba(63,185,80,0.5));
+  filter: drop-shadow(0 0 8px rgba(63, 185, 80, 0.5));
 }
 .node--wrong .node-rect {
   stroke: var(--red);
@@ -210,9 +234,18 @@ h1 {
   font-family: inherit;
   fill: var(--text-dim);
 }
-.edge-label--sync   { fill: var(--sync-color);   opacity: 0.9; }
-.edge-label--async  { fill: var(--async-color);  opacity: 0.9; }
-.edge-label--stress { fill: var(--stress-color); opacity: 1;   }
+.edge-label--sync {
+  fill: var(--sync-color);
+  opacity: 0.9;
+}
+.edge-label--async {
+  fill: var(--async-color);
+  opacity: 0.9;
+}
+.edge-label--stress {
+  fill: var(--stress-color);
+  opacity: 1;
+}
 
 /* ─── Quiz panel ────────────────────────────────────────────────────────────── */
 .quiz-prompt {
@@ -271,7 +304,9 @@ h1 {
   color: var(--text);
   font-family: inherit;
   text-align: left;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
 }
 .failure-btn:hover {
   border-color: var(--accent);
@@ -287,7 +322,9 @@ h1 {
   flex-shrink: 0;
   transition: color 0.15s;
 }
-.failure-btn.active .btn-icon { color: var(--accent); }
+.failure-btn.active .btn-icon {
+  color: var(--accent);
+}
 .btn-text {
   display: flex;
   flex-direction: column;
@@ -297,7 +334,9 @@ h1 {
   font-weight: 700;
   color: var(--text-bright);
 }
-.failure-btn.active .btn-title { color: var(--accent); }
+.failure-btn.active .btn-title {
+  color: var(--accent);
+}
 .btn-sub {
   font-size: 10px;
   color: var(--text-dim);
@@ -322,7 +361,9 @@ h1 {
   opacity: 0.3;
   cursor: not-allowed;
 }
-.submit-btn:not(:disabled):hover { opacity: 0.85; }
+.submit-btn:not(:disabled):hover {
+  opacity: 0.85;
+}
 
 /* ─── Result panel ──────────────────────────────────────────────────────────── */
 .verdict {
@@ -337,10 +378,18 @@ h1 {
   font-size: 20px;
   flex-shrink: 0;
 }
-.verdict--correct { color: var(--green); }
-.verdict--partial { color: var(--orange); }
-.verdict--wrong   { color: var(--red); }
-.verdict--stable  { color: var(--text-dim); }
+.verdict--correct {
+  color: var(--green);
+}
+.verdict--partial {
+  color: var(--orange);
+}
+.verdict--wrong {
+  color: var(--red);
+}
+.verdict--stable {
+  color: var(--text-dim);
+}
 
 .explanation {
   color: var(--text-dim);
@@ -374,7 +423,9 @@ h1 {
   font-family: inherit;
   font-size: 12px;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
 }
 .next-btn:hover {
   border-color: var(--accent);
@@ -383,6 +434,10 @@ h1 {
 
 /* ─── Responsive ────────────────────────────────────────────────────────────── */
 @media (max-width: 640px) {
-  .quiz-row { flex-direction: column; }
-  .panel    { padding: 14px 16px; }
+  .quiz-row {
+    flex-direction: column;
+  }
+  .panel {
+    padding: 14px 16px;
+  }
 }

@@ -1,5 +1,5 @@
-mocha.setup('bdd');
+mocha.setup("bdd");
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener("DOMContentLoaded", () => {
   mocha.run();
 });

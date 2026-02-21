@@ -1,11 +1,13 @@
-'use strict';
+"use strict";
 
 // ─── SyncAck ─────────────────────────────────────────────────────────────────
 // Shared object between an upstream slot (waiting) and a downstream token
 // (responsible for resolving). When the downstream slot releases, it sets
 // ack.done = true, which frees the upstream SYNC wait.
 class SyncAck {
-  constructor() { this.done = false; }
+  constructor() {
+    this.done = false;
+  }
 }
 
 // ─── Token ───────────────────────────────────────────────────────────────────
@@ -32,15 +34,15 @@ class Slot {
   }
 
   get is_waiting_sync() {
-    return this.sync_waits.length > 0 && this.sync_waits.some(sw => !sw.done);
+    return this.sync_waits.length > 0 && this.sync_waits.some((sw) => !sw.done);
   }
 }
 
 // ─── NodeState ───────────────────────────────────────────────────────────────
 class NodeState {
   constructor() {
-    this.slots = [];  // Slot[] — active concurrency slots
-    this.queue = [];  // Token[] — waiting to acquire a slot
+    this.slots = []; // Slot[] — active concurrency slots
+    this.queue = []; // Token[] — waiting to acquire a slot
   }
 }
 
@@ -56,14 +58,16 @@ class Simulator {
    * @param {number} [cfg.max_retries=0]     per-token SYNC retry budget
    */
   constructor(cfg) {
-    this.nodes        = Object.fromEntries(cfg.nodes.map(n => [n.id, n]));
-    this.edges        = cfg.edges;
-    this.entry_id     = cfg.entry_node_id;
+    this.nodes = Object.fromEntries(cfg.nodes.map((n) => [n.id, n]));
+    this.edges = cfg.edges;
+    this.entry_id = cfg.entry_node_id;
     this.arrival_rate = cfg.arrival_rate;
     this.deadline_ticks = cfg.deadline_ticks ?? 0;
-    this.max_retries    = cfg.max_retries    ?? 0;
+    this.max_retries = cfg.max_retries ?? 0;
 
-    this.state = Object.fromEntries(cfg.nodes.map(n => [n.id, new NodeState()]));
+    this.state = Object.fromEntries(
+      cfg.nodes.map((n) => [n.id, new NodeState()]),
+    );
 
     // Token buckets: optional per-node rate limiting.
     // Each bucket starts full and refills by refill_rate per tick.
@@ -71,30 +75,36 @@ class Simulator {
     for (const n of cfg.nodes) {
       if (n.token_bucket) {
         this.buckets[n.id] = {
-          capacity:    n.token_bucket.capacity,
+          capacity: n.token_bucket.capacity,
           refill_rate: n.token_bucket.refill_rate,
-          current:     n.token_bucket.capacity,
+          current: n.token_bucket.capacity,
         };
       }
     }
 
-    this.tick_count           = 0;
-    this.next_token_id        = 0;
-    this.events               = [];
-    this.first_failure        = null; // first terminal event: QUEUE_DROP, DEADLINE_EXCEEDED, or RATE_LIMIT_DROP
+    this.tick_count = 0;
+    this.next_token_id = 0;
+    this.events = [];
+    this.first_failure = null; // first terminal event: QUEUE_DROP, DEADLINE_EXCEEDED, or RATE_LIMIT_DROP
     this.first_timeout_cascade = null; // first TIMEOUT_CASCADE (non-terminal, for quiz use)
   }
 
   // ── Internal helpers ───────────────────────────────────────────────────────
 
   _edges_from(node_id) {
-    return this.edges.filter(e => e.source_id === node_id);
+    return this.edges.filter((e) => e.source_id === node_id);
   }
 
   _log(type, node_id, token, detail) {
-    const ev = { tick: this.tick_count, type, node_id, token_id: token.id, detail };
+    const ev = {
+      tick: this.tick_count,
+      type,
+      node_id,
+      token_id: token.id,
+      detail,
+    };
     this.events.push(ev);
-    if (type === 'TIMEOUT_CASCADE') {
+    if (type === "TIMEOUT_CASCADE") {
       if (!this.first_timeout_cascade) this.first_timeout_cascade = ev;
     } else {
       // QUEUE_DROP and DEADLINE_EXCEEDED are terminal — they stop the simulation.
@@ -105,7 +115,7 @@ class Simulator {
 
   _promote(node_id) {
     const def = this.nodes[node_id];
-    const ns  = this.state[node_id];
+    const ns = this.state[node_id];
     while (ns.queue.length && ns.slots.length < def.max_concurrency) {
       const token = ns.queue.shift();
       ns.slots.push(new Slot(token, def.local_latency_ticks));
@@ -114,7 +124,7 @@ class Simulator {
 
   _inject(node_id, token) {
     const def = this.nodes[node_id];
-    const ns  = this.state[node_id];
+    const ns = this.state[node_id];
 
     // Token bucket check: if the bucket is empty, reject immediately.
     // For SYNC callers, signal their ack right away (fast-fail, no slot held).
@@ -122,8 +132,12 @@ class Simulator {
       const bucket = this.buckets[node_id];
       if (bucket.current < 1) {
         for (const ack of token.release_acks) ack.done = true;
-        this._log('RATE_LIMIT_DROP', node_id, token,
-          `${def.name} quota bucket exhausted`);
+        this._log(
+          "RATE_LIMIT_DROP",
+          node_id,
+          token,
+          `${def.name} quota bucket exhausted`,
+        );
         return;
       }
       bucket.current -= 1;
@@ -134,8 +148,12 @@ class Simulator {
     } else if (ns.queue.length < def.queue_limit) {
       ns.queue.push(token);
     } else {
-      this._log('QUEUE_DROP', node_id, token,
-        `${def.name} queue full (limit: ${def.queue_limit})`);
+      this._log(
+        "QUEUE_DROP",
+        node_id,
+        token,
+        `${def.name} queue full (limit: ${def.queue_limit})`,
+      );
     }
   }
 
@@ -143,7 +161,7 @@ class Simulator {
   _release_slot(node_id, slot) {
     for (const ack of slot.token.release_acks) ack.done = true;
     const ns = this.state[node_id];
-    ns.slots = ns.slots.filter(s => s !== slot);
+    ns.slots = ns.slots.filter((s) => s !== slot);
     this._promote(node_id);
   }
 
@@ -160,10 +178,10 @@ class Simulator {
       const t = new Token(
         `${slot.token.id}:${edge.target_id}`,
         slot.token.deadline_remaining,
-        slot.token.max_retries
+        slot.token.max_retries,
       );
 
-      if (edge.mode === 'ASYNC') {
+      if (edge.mode === "ASYNC") {
         this._inject(edge.target_id, t);
         // Slot released immediately — no hold.
       } else {
@@ -171,7 +189,12 @@ class Simulator {
         const ack = new SyncAck();
         t.release_acks.push(ack);
         this._inject(edge.target_id, t);
-        slot.sync_waits.push({ ack, timeout_remaining: edge.timeout_ticks, edge, done: false });
+        slot.sync_waits.push({
+          ack,
+          timeout_remaining: edge.timeout_ticks,
+          edge,
+          done: false,
+        });
         has_sync = true;
       }
     }
@@ -186,7 +209,10 @@ class Simulator {
 
     // 0. Refill token buckets before processing arrivals.
     for (const bucket of Object.values(this.buckets)) {
-      bucket.current = Math.min(bucket.capacity, bucket.current + bucket.refill_rate);
+      bucket.current = Math.min(
+        bucket.capacity,
+        bucket.current + bucket.refill_rate,
+      );
     }
 
     // 1. Inject new arrivals at entry node.
@@ -207,8 +233,12 @@ class Simulator {
         for (const token of ns.queue) {
           token.deadline_remaining--;
           if (token.deadline_remaining <= 0) {
-            this._log('DEADLINE_EXCEEDED', node_id, token,
-              `Deadline expired in queue at ${this.nodes[node_id].name}`);
+            this._log(
+              "DEADLINE_EXCEEDED",
+              node_id,
+              token,
+              `Deadline expired in queue at ${this.nodes[node_id].name}`,
+            );
           } else {
             keep.push(token);
           }
@@ -216,13 +246,18 @@ class Simulator {
         ns.queue = keep;
       }
 
-      for (const slot of [...ns.slots]) { // snapshot to avoid mutation during iteration
+      for (const slot of [...ns.slots]) {
+        // snapshot to avoid mutation during iteration
         // Tick deadline.
         if (slot.token.deadline_remaining !== Infinity) {
           slot.token.deadline_remaining--;
           if (slot.token.deadline_remaining <= 0) {
-            this._log('DEADLINE_EXCEEDED', node_id, slot.token,
-              `Deadline exhausted at ${this.nodes[node_id].name}`);
+            this._log(
+              "DEADLINE_EXCEEDED",
+              node_id,
+              slot.token,
+              `Deadline exhausted at ${this.nodes[node_id].name}`,
+            );
             to_release.push(slot);
             continue;
           }
@@ -232,29 +267,43 @@ class Simulator {
           // Advance sync timeouts.
           for (const sw of slot.sync_waits) {
             if (sw.done) continue;
-            if (sw.ack.done) { sw.done = true; continue; } // resolved by downstream
+            if (sw.ack.done) {
+              sw.done = true;
+              continue;
+            } // resolved by downstream
 
             sw.timeout_remaining--;
             if (sw.timeout_remaining <= 0) {
-              this._log('TIMEOUT_CASCADE', node_id, slot.token,
-                `SYNC call to ${this.nodes[sw.edge.target_id].name} timed out`);
+              this._log(
+                "TIMEOUT_CASCADE",
+                node_id,
+                slot.token,
+                `SYNC call to ${this.nodes[sw.edge.target_id].name} timed out`,
+              );
 
-              if (slot.token.retry_count < slot.token.max_retries &&
-                  slot.token.deadline_remaining > 0) {
+              if (
+                slot.token.retry_count < slot.token.max_retries &&
+                slot.token.deadline_remaining > 0
+              ) {
                 // Exponential backoff: each retry doubles the wait before
                 // the next attempt (2^n × original timeout). The upstream
                 // slot is held throughout, amplifying backpressure.
                 slot.token.retry_count++;
-                sw.timeout_remaining = sw.edge.timeout_ticks * Math.pow(2, slot.token.retry_count);
+                sw.timeout_remaining =
+                  sw.edge.timeout_ticks * Math.pow(2, slot.token.retry_count);
               } else {
-                this._log('DEADLINE_EXCEEDED', node_id, slot.token,
-                  `Retries/deadline exhausted on SYNC to ${this.nodes[sw.edge.target_id].name}`);
+                this._log(
+                  "DEADLINE_EXCEEDED",
+                  node_id,
+                  slot.token,
+                  `Retries/deadline exhausted on SYNC to ${this.nodes[sw.edge.target_id].name}`,
+                );
                 sw.done = true;
               }
             }
           }
 
-          if (slot.sync_waits.every(sw => sw.done)) {
+          if (slot.sync_waits.every((sw) => sw.done)) {
             to_release.push(slot);
           }
         } else {
@@ -281,7 +330,9 @@ class Simulator {
    */
   run(max_ticks = 500) {
     // Track peak queue depths per node for diagnostics.
-    const peaks = Object.fromEntries(Object.keys(this.state).map(id => [id, 0]));
+    const peaks = Object.fromEntries(
+      Object.keys(this.state).map((id) => [id, 0]),
+    );
 
     while (this.tick_count < max_ticks && !this.first_failure) {
       this.tick();
@@ -291,11 +342,11 @@ class Simulator {
     }
 
     return {
-      failure:               this.first_failure,
+      failure: this.first_failure,
       first_timeout_cascade: this.first_timeout_cascade,
-      ticks_run:             this.tick_count,
-      events:                this.events,
-      node_peaks:            peaks,
+      ticks_run: this.tick_count,
+      events: this.events,
+      node_peaks: peaks,
     };
   }
 }

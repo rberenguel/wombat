@@ -1,0 +1,388 @@
+/* ─── Variables ─────────────────────────────────────────────────────────────── */
+:root {
+  --bg:           #0d1117;
+  --bg2:          #161b22;
+  --bg3:          #1f2937;
+  --border:       #30363d;
+  --text:         #c9d1d9;
+  --text-dim:     #8b949e;
+  --text-bright:  #f0f6fc;
+  --accent:       #58a6ff;
+  --green:        #3fb950;
+  --red:          #f85149;
+  --orange:       #d29922;
+  --purple:       #bc8cff;
+
+  --sync-color:   #58a6ff;
+  --async-color:  #3fb950;
+  --stress-color: #f85149;
+  --node-color:   #1f2937;
+  --node-border:  #374151;
+}
+
+/* ─── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Monoid', 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+/* ─── Layout ────────────────────────────────────────────────────────────────── */
+#app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+header {
+  border-bottom: 1px solid var(--border);
+  padding: 16px 0 12px;
+  margin-bottom: 20px;
+}
+.header-inner {
+  display: flex;
+  align-items: baseline;
+  gap: 20px;
+}
+h1 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.brand-wom { color: var(--accent); }
+.brand-bat { color: var(--text-dim); }
+.seed-display {
+  font-size: 12px;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  cursor: default;
+  user-select: all;
+  text-decoration: none;
+}
+.seed-display:hover { color: var(--text); }
+
+/* ─── Panels ────────────────────────────────────────────────────────────────── */
+.panel {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+  text-transform: uppercase;
+}
+.panel-title .ph-light {
+  font-size: 14px;
+  letter-spacing: 0;
+}
+
+/* ─── Incident panel ────────────────────────────────────────────────────────── */
+.stressor-text {
+  color: var(--orange);
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.arrival-rate {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.system-policy {
+  color: var(--text-dim);
+  font-size: 11px;
+  opacity: 0.6;
+  margin-top: 4px;
+}
+
+/* ─── Graph panel ───────────────────────────────────────────────────────────── */
+.legend {
+  display: flex;
+  gap: 20px;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+.legend-sync   { color: var(--sync-color); }
+.legend-async  { color: var(--async-color); }
+.legend-stress { color: var(--stress-color); }
+
+#graph-container {
+  overflow-x: auto;
+}
+.graph-svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* ─── SVG Node styles ───────────────────────────────────────────────────────── */
+.node-rect {
+  fill:   var(--node-color);
+  stroke: var(--node-border);
+  stroke-width: 1.5;
+  transition: stroke 0.15s, stroke-width 0.15s;
+}
+.node:hover .node-rect {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.node--stressed .node-rect {
+  stroke: var(--stress-color);
+  stroke-width: 2;
+}
+.node--selected .node-rect {
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 6px rgba(88,166,255,0.4));
+}
+.node--correct .node-rect {
+  stroke: var(--green);
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 8px rgba(63,185,80,0.5));
+}
+.node--wrong .node-rect {
+  stroke: var(--red);
+  stroke-width: 2.5;
+  opacity: 0.6;
+}
+
+.node-name {
+  fill: var(--text-bright);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: inherit;
+}
+.node-stat {
+  fill: var(--text-dim);
+  font-size: 10px;
+  font-family: inherit;
+}
+.node-quota {
+  fill: var(--purple);
+  font-size: 10px;
+  font-family: inherit;
+}
+.node-stress-label {
+  fill: var(--stress-color);
+  font-size: 9px;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+/* ─── SVG Edge styles ───────────────────────────────────────────────────────── */
+.edge--sync {
+  stroke: var(--sync-color);
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+.edge--async {
+  stroke: var(--async-color);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 4;
+  opacity: 0.7;
+}
+.edge--stress {
+  stroke: var(--stress-color);
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.edge-label-bg {
+  fill: var(--bg2);
+  stroke: var(--border);
+  stroke-width: 0.5;
+}
+
+.edge-label {
+  font-size: 9px;
+  font-family: inherit;
+  fill: var(--text-dim);
+}
+.edge-label--sync   { fill: var(--sync-color);   opacity: 0.9; }
+.edge-label--async  { fill: var(--async-color);  opacity: 0.9; }
+.edge-label--stress { fill: var(--stress-color); opacity: 1;   }
+
+/* ─── Quiz panel ────────────────────────────────────────────────────────────── */
+.quiz-prompt {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 16px;
+}
+.quiz-row {
+  display: flex;
+  gap: 32px;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+.quiz-col {
+  flex: 1;
+  min-width: 200px;
+}
+.quiz-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-dim);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.selected-node {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  min-height: 38px;
+  background: var(--bg3);
+  font-size: 12px;
+}
+.selected-node.has-selection {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.failure-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.failure-btn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  transition: border-color 0.15s, background 0.15s;
+}
+.failure-btn:hover {
+  border-color: var(--accent);
+  background: #1a2233;
+}
+.failure-btn.active {
+  border-color: var(--accent);
+  background: #162032;
+}
+.btn-icon {
+  font-size: 20px;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  transition: color 0.15s;
+}
+.failure-btn.active .btn-icon { color: var(--accent); }
+.btn-text {
+  display: flex;
+  flex-direction: column;
+}
+.btn-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-bright);
+}
+.failure-btn.active .btn-title { color: var(--accent); }
+.btn-sub {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+
+.submit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: var(--accent);
+  color: #0d1117;
+  border: none;
+  border-radius: 4px;
+  padding: 10px 24px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.submit-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.submit-btn:not(:disabled):hover { opacity: 0.85; }
+
+/* ─── Result panel ──────────────────────────────────────────────────────────── */
+.verdict {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+.verdict .ph-light {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+.verdict--correct { color: var(--green); }
+.verdict--partial { color: var(--orange); }
+.verdict--wrong   { color: var(--red); }
+.verdict--stable  { color: var(--text-dim); }
+
+.explanation {
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-bottom: 16px;
+  line-height: 1.7;
+  max-width: 72ch;
+}
+
+.peaks {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 16px;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 16px;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.next-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 20px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.next-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* ─── Responsive ────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .quiz-row { flex-direction: column; }
+  .panel    { padding: 14px 16px; }
+}

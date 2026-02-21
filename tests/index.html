@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>WoMbat — Tests</title>
+  <link rel="stylesheet" href="mocha.css" />
+  <style>
+    body { background: #0d1117; color: #c9d1d9; font-family: 'JetBrains Mono', 'Fira Code', monospace; }
+    #mocha h1 a { color: #58a6ff; }
+    #mocha .test.fail pre { color: #fca5a5; }
+    #mocha .test.pass.fast .duration { color: #8b949e; }
+    #mocha-stats { color: #8b949e; }
+  </style>
+</head>
+<body>
+  <div id="mocha"></div>
+
+  <!-- Test runner -->
+  <script src="mocha.js"></script>
+  <script src="chai.js"></script>
+  <script src="test_runner.js"></script>
+
+  <!-- Application code (non-module scripts, same as the game loads them) -->
+  <script src="../js/simulator.js"></script>
+  <script src="../js/generator.js"></script>
+
+  <!-- Test suites -->
+  <script type="module" src="test_simulator.js"></script>
+  <script type="module" src="test_generator.js"></script>
+</body>
+</html>

@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0d1117" />
+  <title>WoMbat</title>
+  <link rel="icon" href="favicon.ico" sizes="any" />
+  <link rel="icon" type="image/png" href="icon.png" />
+  <link rel="apple-touch-icon" href="icon.png" />
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <style>
+    /* ── Monoid ─────────────────────────────────────────────────────────────── */
+    @font-face {
+      font-family: "Monoid";
+      src: url("fonts/monoid-regular.woff2") format("woff2");
+      font-weight: normal;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Monoid";
+      src: url("fonts/monoid-bold.woff2") format("woff2");
+      font-weight: bold;
+      font-style: normal;
+    }
+    @font-face {
+      font-family: "Monoid";
+      src: url("fonts/monoid-italic.woff2") format("woff2");
+      font-weight: normal;
+      font-style: italic;
+    }
+
+    /* ── Phosphor Light ─────────────────────────────────────────────────────── */
+    @font-face {
+      font-family: "Phosphor-Light";
+      src: url("fonts/phosphor/Phosphor-Light.woff2") format("woff2");
+      font-weight: normal;
+      font-style: normal;
+      font-display: block;
+    }
+    .ph-light {
+      font-family: "Phosphor-Light" !important;
+      speak: never;
+      font-style: normal;
+      font-weight: normal;
+      font-variant: normal;
+      text-transform: none;
+      line-height: 1;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .ph-light.ph-arrow-right:before   { content: "\e06c"; }
+    .ph-light.ph-chart-bar:before     { content: "\e150"; }
+    .ph-light.ph-check-circle:before  { content: "\e184"; }
+    .ph-light.ph-clock:before         { content: "\e19a"; }
+    .ph-light.ph-cpu:before           { content: "\e610"; }
+    .ph-light.ph-hourglass:before     { content: "\e2b2"; }
+    .ph-light.ph-lightning:before     { content: "\e2de"; }
+    .ph-light.ph-prohibit:before      { content: "\e3de"; }
+    .ph-light.ph-shuffle:before       { content: "\e422"; }
+    .ph-light.ph-siren:before         { content: "\e9b8"; }
+    .ph-light.ph-stack:before         { content: "\e466"; }
+    .ph-light.ph-timer:before         { content: "\e492"; }
+    .ph-light.ph-warning:before       { content: "\e4e0"; }
+    .ph-light.ph-x-circle:before      { content: "\e4f8"; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <header>
+    <div class="header-inner">
+      <h1><span class="brand-wom">WoM</span><span class="brand-bat">bat</span></h1>
+      <a id="seed-display" class="seed-display"></a>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ── Incident panel ── -->
+    <section class="panel" id="incident-panel">
+      <h2 class="panel-title"><i class="ph-light ph-siren"></i> INCIDENT</h2>
+      <p id="stressor-desc" class="stressor-text"></p>
+      <p id="arrival-rate"  class="arrival-rate"></p>
+      <p id="system-policy" class="system-policy"></p>
+    </section>
+
+    <!-- ── Graph panel ── -->
+    <section class="panel" id="graph-panel">
+      <h2 class="panel-title"><i class="ph-light ph-cpu"></i> ARCHITECTURE</h2>
+      <div class="legend">
+        <span class="legend-sync"><i class="ph-light ph-arrow-right"></i> SYNC</span>
+        <span class="legend-async"><i class="ph-light ph-arrow-right"></i> ASYNC</span>
+        <span class="legend-stress"><i class="ph-light ph-lightning"></i> stressor target</span>
+      </div>
+      <div id="graph-container"></div>
+    </section>
+
+    <!-- ── Quiz panel ── -->
+    <section class="panel" id="quiz-panel">
+      <h2 class="panel-title"><i class="ph-light ph-warning"></i> DIAGNOSIS</h2>
+      <p class="quiz-prompt">Which node fails first, and why?</p>
+
+      <div class="quiz-row">
+        <div class="quiz-col">
+          <label class="quiz-label">1. Select the failing node</label>
+          <div id="selected-node-display" class="selected-node">— click a node —</div>
+        </div>
+
+        <div class="quiz-col">
+          <label class="quiz-label">2. Select the failure mode</label>
+          <div class="failure-btns">
+            <button class="failure-btn" data-type="QUEUE_DROP">
+              <i class="ph-light ph-stack btn-icon"></i>
+              <span class="btn-text">
+                <span class="btn-title">Queue Drop</span>
+                <span class="btn-sub">buffer full / OOM</span>
+              </span>
+            </button>
+            <button class="failure-btn" data-type="TIMEOUT_CASCADE">
+              <i class="ph-light ph-timer btn-icon"></i>
+              <span class="btn-text">
+                <span class="btn-title">Timeout Cascade</span>
+                <span class="btn-sub">SYNC calls timing out</span>
+              </span>
+            </button>
+            <button class="failure-btn" data-type="DEADLINE_EXCEEDED">
+              <i class="ph-light ph-hourglass btn-icon"></i>
+              <span class="btn-text">
+                <span class="btn-title">Deadline Exceeded</span>
+                <span class="btn-sub">SYNC timed out, no retries left</span>
+              </span>
+            </button>
+            <button class="failure-btn" data-type="RATE_LIMIT_DROP">
+              <i class="ph-light ph-prohibit btn-icon"></i>
+              <span class="btn-text">
+                <span class="btn-title">Rate Limited</span>
+                <span class="btn-sub">quota bucket exhausted</span>
+              </span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <button id="submit-btn" class="submit-btn" disabled>
+        <i class="ph-light ph-siren"></i> Submit Diagnosis
+      </button>
+    </section>
+
+    <!-- ── Result panel ── -->
+    <section class="panel" id="result-panel" hidden>
+      <h2 class="panel-title"><i class="ph-light ph-chart-bar"></i> RESULT</h2>
+      <p id="result-verdict" class="verdict"></p>
+      <p id="result-explanation" class="explanation"></p>
+      <pre id="result-peaks" class="peaks" hidden></pre>
+      <button id="next-btn" class="next-btn">
+        <i class="ph-light ph-shuffle"></i> Next Scenario
+      </button>
+    </section>
+
+  </main>
+
+</div>
+
+<script src="js/simulator.js"></script>
+<script src="js/generator.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

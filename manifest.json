@@ -3,7 +3,7 @@
   "name": "WoMbat",
   "short_name": "WoMbat",
   "description": "Wheel of Misfortune — train your SRE instincts by diagnosing procedurally generated distributed system failures.",
-  "start_url": "/",
+  "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0d1117",
   "theme_color": "#0d1117",

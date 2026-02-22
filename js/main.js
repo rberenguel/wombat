@@ -72,7 +72,14 @@ function loadScenario(seed) {
       : scenario.max_retries > 0
         ? `retries: ${scenario.max_retries} (exp. backoff)`
         : "retries: none";
-  $policy.textContent = `SYNC calls: per-edge timeout · ${retry_str} · no time deadline`;
+  const cb_count = scenario.stressed_nodes.filter(
+    (n) => n.circuit_breaker,
+  ).length;
+  const cb_str =
+    cb_count > 0
+      ? ` · ${cb_count} circuit breaker${cb_count > 1 ? "s" : ""}`
+      : "";
+  $policy.textContent = `SYNC calls: per-edge timeout · ${retry_str} · no time deadline${cb_str}`;
 
   // Graph.
   renderer.render(scenario);
@@ -183,6 +190,7 @@ function labelForType(type) {
       TIMEOUT_CASCADE: "Timeout Cascade",
       DEADLINE_EXCEEDED: "Deadline Exceeded",
       RATE_LIMIT_DROP: "Rate Limited",
+      CB_OPEN_DROP: "Circuit Open",
     }[type] ?? type
   );
 }

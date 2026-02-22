@@ -43,6 +43,10 @@ class NodeState {
   constructor() {
     this.slots = []; // Slot[] — active concurrency slots
     this.queue = []; // Token[] — waiting to acquire a slot
+    // Circuit breaker state
+    this.cb_failure_ticks = []; // tick numbers when a SYNC timeout targeting this node was recorded
+    this.cb_tripped = false;
+    this.cb_cooldown = 0; // ticks remaining in open state before half-open attempt
   }
 }
 
@@ -108,7 +112,7 @@ class Simulator {
     if (type === "TIMEOUT_CASCADE") {
       if (!this.first_timeout_cascade) this.first_timeout_cascade = ev;
     } else {
-      // QUEUE_DROP and DEADLINE_EXCEEDED are terminal — they stop the simulation.
+      // QUEUE_DROP, DEADLINE_EXCEEDED, RATE_LIMIT_DROP, CB_OPEN_DROP are terminal.
       if (!this.first_failure) this.first_failure = ev;
     }
     return ev;
@@ -144,6 +148,14 @@ class Simulator {
       bucket.current -= 1;
     }
 
+    // Circuit breaker check: fast-fail when the breaker is open.
+    // Resolve upstream SYNC acks immediately so the caller's slot is freed.
+    if (def.circuit_breaker && ns.cb_tripped) {
+      for (const ack of token.release_acks) ack.done = true;
+      this._log("CB_OPEN_DROP", node_id, token, `${def.name} circuit open`);
+      return;
+    }
+
     if (ns.slots.length < def.max_concurrency) {
       ns.slots.push(new Slot(token, def.local_latency_ticks));
     } else if (ns.queue.length < def.queue_limit) {
@@ -164,6 +176,23 @@ class Simulator {
     const ns = this.state[node_id];
     ns.slots = ns.slots.filter((s) => s !== slot);
     this._promote(node_id);
+  }
+
+  // Called when a SYNC timeout fires targeting this node. Maintains a sliding
+  // failure window; trips the circuit breaker once threshold is reached.
+  _record_cb_failure(node_id) {
+    const def = this.nodes[node_id];
+    if (!def.circuit_breaker || this.state[node_id].cb_tripped) return;
+    const cb = def.circuit_breaker;
+    const ns = this.state[node_id];
+    ns.cb_failure_ticks = ns.cb_failure_ticks.filter(
+      (t) => this.tick_count - t <= cb.window_ticks,
+    );
+    ns.cb_failure_ticks.push(this.tick_count);
+    if (ns.cb_failure_ticks.length >= cb.threshold) {
+      ns.cb_tripped = true;
+      ns.cb_cooldown = cb.cooldown_ticks;
+    }
   }
 
   // Returns true if this token is a cache hit at a cache-subtype node.
@@ -227,7 +256,19 @@ class Simulator {
   tick() {
     this.tick_count++;
 
-    // 0. Refill token buckets before processing arrivals.
+    // 0a. Advance circuit breaker cooldowns and attempt half-open reset.
+    for (const [node_id, ns] of Object.entries(this.state)) {
+      if (ns.cb_tripped && ns.cb_cooldown > 0) {
+        ns.cb_cooldown--;
+        if (ns.cb_cooldown === 0) {
+          // Half-open: reset and let one request through.
+          ns.cb_tripped = false;
+          ns.cb_failure_ticks = [];
+        }
+      }
+    }
+
+    // 0b. Refill token buckets before processing arrivals.
     for (const bucket of Object.values(this.buckets)) {
       bucket.current = Math.min(
         bucket.capacity,
@@ -300,6 +341,7 @@ class Simulator {
                 slot.token,
                 `SYNC call to ${this.nodes[sw.edge.target_id].name} timed out`,
               );
+              this._record_cb_failure(sw.edge.target_id);
 
               if (
                 slot.token.retry_count < slot.token.max_retries &&

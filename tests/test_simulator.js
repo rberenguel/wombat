@@ -706,6 +706,127 @@ describe("Simulator", function () {
     });
   });
 
+  // ── Circuit breaker mechanics ──────────────────────────────────────────────
+
+  describe("Circuit breaker", function () {
+    function cb_node(id, name, cb, opts = {}) {
+      return {
+        id,
+        name,
+        max_concurrency: opts.conc ?? 5,
+        queue_limit: opts.queue ?? 20,
+        local_latency_ticks: opts.latency ?? 10,
+        circuit_breaker: cb,
+      };
+    }
+
+    it("CB trips after threshold SYNC timeouts targeting it, then fires CB_OPEN_DROP", function () {
+      // A → SYNC(timeout=1) → B (latency=10). With threshold=2 and timeout=1 < latency,
+      // every SYNC call times out. After 2 timeouts B's CB trips. The 3rd dispatch → CB_OPEN_DROP.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 5, queue: 20, latency: 1 }),
+          cb_node("B", "Worker", {
+            threshold: 2,
+            window_ticks: 20,
+            cooldown_ticks: 50,
+          }),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 1 })],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      sim.run(20);
+      expect(sim.first_failure).to.exist;
+      expect(sim.first_failure.type).to.equal("CB_OPEN_DROP");
+      expect(sim.first_failure.node_id).to.equal("B");
+    });
+
+    it("CB fast-fails SYNC acks: upstream slot freed within one tick of dispatch when breaker is open", function () {
+      // Manually trip B's CB. After A dispatches to B, the ack is resolved immediately
+      // (fast-fail), so A's sync_wait is cleared at the next tick (not after the long timeout).
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 2, queue: 5, latency: 1 }),
+          cb_node(
+            "B",
+            "Worker",
+            { threshold: 2, window_ticks: 20, cooldown_ticks: 100 },
+            { latency: 100 },
+          ),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 200 })],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      sim.state["B"].cb_tripped = true;
+      // Tick 1: token arrives at A, dispatches to B → CB fast-fail (ack.done=true), sync_wait added.
+      sim.tick();
+      // Stop arrivals so tick 2 doesn't inject a new token that creates another sync_wait.
+      sim.arrival_rate = 0;
+      // Tick 2: A sees sw.ack.done=true → sw.done=true → slot freed. No new arrivals.
+      sim.tick();
+      // A must have no stuck sync-wait slots (fast-fail released the ack immediately).
+      expect(
+        sim.state["A"].slots.filter((s) => s.is_waiting_sync).length,
+      ).to.equal(0);
+    });
+
+    it("CB resets after cooldown_ticks and accepts tokens without CB_OPEN_DROP", function () {
+      // Manually trip B's CB with cooldown=3. After 3 ticks the cooldown hits 0 and the
+      // breaker is reset. On the 4th tick B's injection should succeed normally.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 5, queue: 20, latency: 1 }),
+          cb_node("B", "Worker", {
+            threshold: 2,
+            window_ticks: 20,
+            cooldown_ticks: 3,
+          }),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 1 })],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      sim.state["B"].cb_tripped = true;
+      sim.state["B"].cb_cooldown = 3;
+      sim.tick(); // cooldown: 3→2
+      sim.tick(); // cooldown: 2→1
+      sim.tick(); // cooldown: 1→0 → reset; A dispatches to B, no CB_OPEN_DROP at tick 3
+      expect(sim.state["B"].cb_tripped).to.equal(false);
+      expect(sim.state["B"].cb_failure_ticks.length).to.equal(0);
+      // No CB_OPEN_DROP should have fired at or after tick 3 (reset tick).
+      const drops_after_reset = sim.events.filter(
+        (e) => e.type === "CB_OPEN_DROP" && e.tick >= 3,
+      );
+      expect(drops_after_reset.length).to.equal(0);
+    });
+
+    it("CB does not trip on ASYNC traffic (no SYNC timeout means no CB failure recorded)", function () {
+      // A → ASYNC → B (CB node). ASYNC edges never produce TIMEOUT_CASCADE events,
+      // so _record_cb_failure is never called. B may queue-drop but must never trip its CB.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 5, queue: 20, latency: 1 }),
+          cb_node(
+            "B",
+            "Worker",
+            { threshold: 2, window_ticks: 20, cooldown_ticks: 50 },
+            { conc: 1, queue: 2 },
+          ),
+        ],
+        edges: [edge("A", "B", { mode: "ASYNC" })],
+        entry_node_id: "A",
+        arrival_rate: 3,
+      });
+      sim.run(30);
+      expect(sim.state["B"].cb_tripped).to.equal(false);
+      expect(sim.state["B"].cb_failure_ticks.length).to.equal(0);
+      const cb_drops = sim.events.filter((e) => e.type === "CB_OPEN_DROP");
+      expect(cb_drops.length).to.equal(0);
+    });
+  });
+
   // ── Token bucket mechanics ─────────────────────────────────────────────────
 
   describe("Token bucket rate limiting", function () {

@@ -411,6 +411,68 @@ describe("Generator", function () {
     });
   });
 
+  describe("CIRCUIT_BREAKER_FLAP stressor", function () {
+    it("CIRCUIT_BREAKER_FLAP produces CB_OPEN_DROP as the answer", function () {
+      const flap_seeds = SEEDS.filter(
+        (seed) =>
+          generateScenario(seed).stressor.type === "CIRCUIT_BREAKER_FLAP",
+      );
+      for (const seed of flap_seeds) {
+        const s = generateScenario(seed);
+        expect(s.answer, `seed ${seed}: CB_FLAP must cause failure`).to.exist;
+        expect(
+          s.answer.failure_type,
+          `seed ${seed}: CB_FLAP terminal event`,
+        ).to.equal("CB_OPEN_DROP");
+      }
+    });
+
+    it("baseline with CB nodes is stable (CB must not trip under safe arrival rate)", function () {
+      for (const seed of SEEDS) {
+        const s = generateScenario(seed);
+        const cb_node = s.nodes.find((n) => n.circuit_breaker);
+        if (!cb_node) continue;
+        const sim = new Simulator({
+          nodes: s.nodes,
+          edges: s.edges,
+          entry_node_id: s.entry_node_id,
+          arrival_rate: s.arrival_rate,
+          deadline_ticks: 0,
+          max_retries: 0,
+        });
+        const result = sim.run(400);
+        expect(
+          result.failure,
+          `seed ${seed}: baseline with CB should be stable`,
+        ).to.not.exist;
+        expect(
+          sim.state[cb_node.id].cb_tripped,
+          `seed ${seed}: CB must not trip at baseline`,
+        ).to.equal(false);
+      }
+    });
+
+    it("circuit_breaker is only assigned to SYNC target nodes (never entry, never ASYNC-only)", function () {
+      for (const seed of SEEDS) {
+        const s = generateScenario(seed);
+        const sync_targets = new Set(
+          s.edges.filter((e) => e.mode === "SYNC").map((e) => e.target_id),
+        );
+        for (const n of s.nodes) {
+          if (!n.circuit_breaker) continue;
+          expect(
+            n.id,
+            `seed ${seed}: CB node must not be the entry node`,
+          ).to.not.equal(s.entry_node_id);
+          expect(
+            sync_targets.has(n.id),
+            `seed ${seed}: CB node ${n.id} must be a SYNC target`,
+          ).to.equal(true);
+        }
+      }
+    });
+  });
+
   describe("Answer validity", function () {
     it("answer node_id always references an existing node", function () {
       for (const seed of SEEDS) {
@@ -430,6 +492,7 @@ describe("Generator", function () {
         "TIMEOUT_CASCADE",
         "DEADLINE_EXCEEDED",
         "RATE_LIMIT_DROP",
+        "CB_OPEN_DROP",
         // NETWORK_PARTITION causes QUEUE_DROP at the upstream caller — covered above.
       ];
       for (const seed of SEEDS) {

@@ -15,7 +15,7 @@ function svgText(text, attrs = {}) {
 
 // ─── Layout constants ─────────────────────────────────────────────────────────
 const NODE_W = 140;
-const NODE_H = 96;
+const NODE_H = 112;
 const PAD_X = 60; // horizontal padding from canvas edge
 const PAD_Y = 50;
 const LAYER_GAP = 200; // horizontal gap between layer centres
@@ -258,37 +258,53 @@ class GraphRenderer {
       }),
     );
 
-    // Cache hit rate (replaces token bucket line for cache nodes).
+    // Optional stat lines stacked from y+70 downward.
+    let opt_y = pos.y + 70;
+
     if (is_cache) {
       g.appendChild(
         svgText(`hit: ${Math.round((node.hit_rate ?? 0) * 100)}%`, {
           x: pos.cx,
-          y: pos.y + 70,
+          y: opt_y,
           "text-anchor": "middle",
           class: "node-cache-stat",
         }),
       );
+      opt_y += 16;
     } else if (node.token_bucket) {
-      // Token bucket (optional, non-cache nodes only).
       g.appendChild(
         svgText(
           `quota: ${node.token_bucket.capacity}  +${node.token_bucket.refill_rate}/t`,
           {
             x: pos.cx,
-            y: pos.y + 70,
+            y: opt_y,
             "text-anchor": "middle",
             class: "node-quota",
           },
         ),
       );
+      opt_y += 16;
     }
 
-    // Stress indicator.
+    if (node.circuit_breaker) {
+      const cb = node.circuit_breaker;
+      g.appendChild(
+        svgText(`cb: trips:${cb.threshold}  cool:${cb.cooldown_ticks}t`, {
+          x: pos.cx,
+          y: opt_y,
+          "text-anchor": "middle",
+          class: "node-cb-stat",
+        }),
+      );
+      opt_y += 16;
+    }
+
+    // Stress indicator (always last, at least 14px below the previous line).
     if (is_stressed) {
       g.appendChild(
         svgText("⚡ STRESSOR", {
           x: pos.cx,
-          y: pos.y + 84,
+          y: Math.max(opt_y, pos.y + 84),
           "text-anchor": "middle",
           class: "node-stress-label",
         }),

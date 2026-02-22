@@ -69,14 +69,14 @@ const TOPOLOGIES_RARE = [
 const CACHE_NAMES = [
   "Product Cache",
   "Query Cache",
-  "Redis Cache",
-  "Memcache Layer",
+  "Generic Cache",
+  "In-memory Cache",
   "L2 Cache",
 ];
 const DB_NAMES = [
   "Primary DB",
-  "Postgres",
-  "MySQL Cluster",
+  "Relational DB",
+  "Database cluster",
   "Read Replica",
   "Datastore",
 ];
@@ -237,6 +237,25 @@ function safeArrivalRate(nodes, edges, entry_id) {
   return Math.max(1, Math.floor(min_tp * 0.55));
 }
 
+// ─── Circuit breaker assignment ───────────────────────────────────────────────
+// Assign circuit breakers to ~25% of non-entry SYNC-target nodes.
+// Called after assignBuckets so the rng sequence is consistent.
+function assignCircuitBreakers(rng, nodes, edges) {
+  const sync_targets = new Set(
+    edges.filter((e) => e.mode === "SYNC").map((e) => e.target_id),
+  );
+  for (const node of nodes.slice(1)) {
+    if (!sync_targets.has(node.id)) continue;
+    if (rng() < 0.25) {
+      node.circuit_breaker = {
+        threshold: randInt(rng, 3, 6),
+        window_ticks: randInt(rng, 20, 40),
+        cooldown_ticks: randInt(rng, 30, 60),
+      };
+    }
+  }
+}
+
 // ─── Stressor definitions ────────────────────────────────────────────────────
 const STRESSOR_TYPES = [
   "LATENCY_SPIKE",
@@ -247,28 +266,33 @@ const STRESSOR_TYPES = [
   "NETWORK_PARTITION",
   "CACHE_FLUSH",
   "AGGRESSIVE_RETRIES",
+  "CIRCUIT_BREAKER_FLAP",
 ];
 
 function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
   // Deep-clone so we can return both baseline and stressed configs.
-  // token_bucket is an object — needs its own shallow clone.
+  // token_bucket and circuit_breaker are objects — need their own shallow clone.
   nodes = nodes.map((n) => ({
     ...n,
     token_bucket: n.token_bucket ? { ...n.token_bucket } : undefined,
+    circuit_breaker: n.circuit_breaker ? { ...n.circuit_breaker } : undefined,
   }));
   edges = edges.map((e) => ({ ...e }));
 
   // QUOTA_IDENTITY_BUG requires at least one bucketed node.
   // NETWORK_PARTITION requires at least one SYNC edge.
   // CACHE_FLUSH requires at least one cache-subtype node.
+  // CIRCUIT_BREAKER_FLAP requires at least one node with a circuit_breaker.
   const bucketed = nodes.filter((n) => n.token_bucket);
   const sync_edges = edges.filter((e) => e.mode === "SYNC");
   const cache_nodes = nodes.filter((n) => n.node_subtype === "cache");
+  const cb_nodes = nodes.filter((n) => n.circuit_breaker);
   const available = STRESSOR_TYPES.filter((t) => {
     if (t === "QUOTA_IDENTITY_BUG") return bucketed.length > 0;
     if (t === "NETWORK_PARTITION") return sync_edges.length > 0;
     if (t === "CACHE_FLUSH") return cache_nodes.length > 0;
     if (t === "AGGRESSIVE_RETRIES") return sync_edges.length > 0;
+    if (t === "CIRCUIT_BREAKER_FLAP") return cb_nodes.length > 0;
     return true;
   });
   const type = forced_type ?? pick(rng, available);
@@ -278,6 +302,7 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
   if (type === "NETWORK_PARTITION" && sync_edges.length === 0) return null;
   if (type === "CACHE_FLUSH" && cache_nodes.length === 0) return null;
   if (type === "AGGRESSIVE_RETRIES" && sync_edges.length === 0) return null;
+  if (type === "CIRCUIT_BREAKER_FLAP" && cb_nodes.length === 0) return null;
   let description, mutation;
 
   if (type === "LATENCY_SPIKE") {
@@ -427,6 +452,48 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
       new_value: new_v,
       max_retries: 3,
     };
+  } else if (type === "CIRCUIT_BREAKER_FLAP") {
+    // Compound stressor: reduce the CB threshold to 1 AND shorten the incoming
+    // SYNC edge timeout to below the target's latency. The first timeout now trips
+    // the breaker immediately, fast-failing all subsequent traffic.
+    const target = pick(rng, cb_nodes);
+    const incoming_sync = edges.filter(
+      (e) => e.mode === "SYNC" && e.target_id === target.id,
+    );
+    const edge = pick(rng, incoming_sync);
+    const old_thresh = target.circuit_breaker.threshold;
+    const new_thresh = 1;
+    const old_timeout = edge.timeout_ticks;
+    const new_timeout = Math.max(
+      1,
+      Math.floor(target.local_latency_ticks * 0.4),
+    );
+    const cooldown = Math.max(80, target.circuit_breaker.cooldown_ticks);
+    nodes.find((n) => n.id === target.id).circuit_breaker = {
+      ...target.circuit_breaker,
+      threshold: new_thresh,
+      cooldown_ticks: cooldown,
+    };
+    edges.find(
+      (e) => e.source_id === edge.source_id && e.target_id === edge.target_id,
+    ).timeout_ticks = new_timeout;
+    const src_name = nodes.find((n) => n.id === edge.source_id).name;
+    description =
+      `${target.name}'s circuit breaker threshold was misconfigured to ${new_thresh} ` +
+      `(was ${old_thresh}). A simultaneous timeout misconfiguration on ` +
+      `${src_name} → ${target.name} (timeout: ${old_timeout} → ${new_timeout} ticks, ` +
+      `below latency of ${target.local_latency_ticks} ticks) now trips the breaker on ` +
+      `the very first failed call, fast-failing all subsequent traffic for ${cooldown} ticks.`;
+    mutation = {
+      type,
+      node_id: target.id,
+      edge,
+      property: "circuit_breaker.threshold",
+      old_value: old_thresh,
+      new_value: new_thresh,
+      old_timeout,
+      new_timeout,
+    };
   } else {
     // QUOTA_IDENTITY_BUG
     // Collapse a node's generous per-caller bucket into a tiny shared-identity bucket.
@@ -465,6 +532,16 @@ function buildExplanation(failure, events, nodes_map, stressor) {
     return "The system remained stable for the entire simulation window.";
 
   const failed_node = nodes_map[failure.node_id]?.name ?? failure.node_id;
+
+  if (failure.type === "CB_OPEN_DROP") {
+    const cb_node = nodes_map[failure.node_id];
+    return (
+      `${failed_node}'s circuit breaker tripped after ${stressor.mutation.new_value} failure(s) ` +
+      `within the observation window. For the next ${cb_node?.circuit_breaker?.cooldown_ticks ?? "?"} ticks ` +
+      `all incoming requests were fast-failed — the upstream SYNC caller's slot was released ` +
+      `immediately on each rejection, but the path to ${failed_node} was severed entirely.`
+    );
+  }
 
   if (failure.type === "TIMEOUT_CASCADE") {
     return `Every SYNC call from ${failed_node} timed out immediately — the configured timeout is shorter than the downstream node's processing time. Upstream slots stay locked on every attempt, causing a permanent stall.`;
@@ -607,7 +684,10 @@ function generateScenario(seed) {
     }
   })();
 
-  // 3. Apply stressor and verify it causes failure within 600 ticks.
+  // 3. Assign optional circuit breakers to SYNC-target non-entry nodes.
+  assignCircuitBreakers(rng, nodes, edges);
+
+  // 4. Apply stressor and verify it causes failure within 600 ticks.
   // If the first randomly chosen stressor leaves the system stable (e.g. CONCURRENCY_CRUSH
   // on a node with comfortable headroom), cycle through the remaining types until one works.
   function runStressor(forced_type) {

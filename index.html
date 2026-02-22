@@ -252,6 +252,15 @@
                     <span class="btn-sub">quota bucket exhausted</span>
                   </span>
                 </button>
+                <button class="failure-btn" data-type="CB_OPEN_DROP">
+                  <i class="ph-light ph-lightning btn-icon"></i>
+                  <span class="btn-text">
+                    <span class="btn-title">Circuit Open</span>
+                    <span class="btn-sub"
+                      >breaker tripped, cascade rejection</span
+                    >
+                  </span>
+                </button>
               </div>
             </div>
           </div>
@@ -319,6 +328,14 @@
                   memory at this rate — only the remainder reach the downstream
                   database. A cache flush drops this to 0%, sending every
                   request straight to the DB → <strong>thundering herd</strong>.
+                </dd>
+                <dt>⚡ CB</dt>
+                <dd>
+                  Circuit breaker. After a threshold of SYNC timeout failures
+                  within an observation window the breaker trips, fast-failing
+                  every subsequent request for a cooldown period →
+                  <strong>Circuit Open</strong>. After the cooldown the breaker
+                  resets and lets one request through (half-open).
                 </dd>
               </dl>
             </section>

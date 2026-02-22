@@ -205,8 +205,20 @@ document.addEventListener("keydown", (e) => {
 fetch("manifest.json")
   .then((r) => r.json())
   .then((m) => {
-    if (m.version) $version_el.textContent = m.version;
+    if (m.version) {
+      $version_el.textContent = m.version;
+      const $intro_v = document.getElementById("intro-version");
+      if ($intro_v) $intro_v.textContent = `v${m.version}`;
+    }
   })
   .catch(() => {});
+
+// Intro screen: clicking the button fades it out and reveals the app.
+const $intro = document.getElementById("intro-screen");
+document.getElementById("intro-begin-btn").addEventListener("click", () => {
+  $intro.classList.add("hidden");
+  // Remove from tab order after transition.
+  $intro.addEventListener("transitionend", () => { $intro.style.display = "none"; }, { once: true });
+});
 
 loadScenario(seedFromHash());

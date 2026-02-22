@@ -98,9 +98,31 @@
     </style>
   </head>
   <body>
+    <!-- ── Intro screen ── -->
+    <div id="intro-screen" class="intro-screen">
+      <div class="intro-content">
+        <img src="icon.png" class="intro-icon" alt="WoMbat" />
+        <h1 class="intro-title">
+          <span class="brand-wom">WoM</span><span class="brand-bat">bat</span>
+        </h1>
+        <div class="intro-subtitle">distributed systems triage</div>
+        <div id="intro-version" class="intro-version"></div>
+        <ul class="intro-rules">
+          <li>A distributed system is melting down. Read the incident report.</li>
+          <li>Study the architecture: node capacities, edge types, timeouts.</li>
+          <li>Predict which node fails first — and what kills it.</li>
+        </ul>
+        <button id="intro-begin-btn" class="intro-begin-btn">
+          <i class="ph-light ph-siren"></i>
+          <span>RESPOND TO INCIDENT</span>
+        </button>
+      </div>
+    </div>
+
     <div id="app">
       <header>
         <div class="header-inner">
+          <img id="header-icon" src="icon.png"/>
           <h1>
             <span class="brand-wom">WoM</span><span class="brand-bat">bat</span>
           </h1>
@@ -141,6 +163,9 @@
             <span class="legend-partition"
               ><i class="ph-light ph-prohibit"></i> partitioned</span
             >
+            <span class="legend-cache"
+              ><i class="ph-light ph-stack"></i> cache node</span
+            >
           </div>
           <div id="graph-container"></div>
         </section>
@@ -154,7 +179,7 @@
 
           <div class="quiz-row">
             <div class="quiz-col">
-              <label class="quiz-label">1. Select the failing node</label>
+              <label class="quiz-label">1. Select the failing node above</label>
               <div id="selected-node-display" class="selected-node">
                 — click a node —
               </div>
@@ -195,9 +220,14 @@
             </div>
           </div>
 
-          <button id="submit-btn" class="submit-btn" disabled>
-            <i class="ph-light ph-siren"></i> Submit Diagnosis
-          </button>
+          <div class="quiz-actions">
+            <button id="submit-btn" class="submit-btn" disabled>
+              <i class="ph-light ph-siren"></i> Submit Diagnosis
+            </button>
+            <button id="next-btn" class="next-btn">
+              <i class="ph-light ph-shuffle"></i> Next Incident
+            </button>
+          </div>
         </section>
 
         <!-- ── Result panel ── -->
@@ -208,9 +238,6 @@
           <p id="result-verdict" class="verdict"></p>
           <p id="result-explanation" class="explanation"></p>
           <pre id="result-peaks" class="peaks" hidden></pre>
-          <button id="next-btn" class="next-btn">
-            <i class="ph-light ph-shuffle"></i> Next Scenario
-          </button>
         </section>
       </main>
 
@@ -236,6 +263,8 @@
                 <dd>How long each request spends processing inside this node before being forwarded downstream.</dd>
                 <dt>quota: N +R/t</dt>
                 <dd>Token bucket rate limit. Holds at most N tokens, refills R per tick. An empty bucket means instant rejection → <strong>Rate Limited</strong>.</dd>
+                <dt>hit: N%</dt>
+                <dd>Cache hit rate (cylinder-shaped nodes). Requests served from memory at this rate — only the remainder reach the downstream database. A cache flush drops this to 0%, sending every request straight to the DB → <strong>thundering herd</strong>.</dd>
               </dl>
             </section>
 

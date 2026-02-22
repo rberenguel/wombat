@@ -65,10 +65,36 @@ const TOPOLOGIES_RARE = [
   [1, 2, 2, 1], // double-wide: cross-edges between both middle layers
 ];
 
+// ─── Cache node name pools ────────────────────────────────────────────────────
+const CACHE_NAMES = [
+  "Product Cache",
+  "Query Cache",
+  "Redis Cache",
+  "Memcache Layer",
+  "L2 Cache",
+];
+const DB_NAMES = [
+  "Primary DB",
+  "Postgres",
+  "MySQL Cluster",
+  "Read Replica",
+  "Datastore",
+];
+
 // ─── Graph builder ───────────────────────────────────────────────────────────
 function buildTopology(rng) {
-  const pool = rng() < 0.2 ? TOPOLOGIES_RARE : TOPOLOGIES_COMMON;
-  const template = pick(rng, pool);
+  // 15% chance of a dedicated cache–db topology (4-node linear, last two nodes
+  // are cache + db). The cache absorbs most traffic under baseline; CACHE_FLUSH
+  // stressor drops hit_rate to 0 and exposes the unprotected DB.
+  const use_cache_db = rng() < 0.15;
+  let template;
+  if (use_cache_db) {
+    template = [1, 1, 1, 1];
+  } else {
+    const pool = rng() < 0.2 ? TOPOLOGIES_RARE : TOPOLOGIES_COMMON;
+    template = pick(rng, pool);
+  }
+
   const layers = [];
   let node_num = 0;
 
@@ -120,6 +146,37 @@ function buildTopology(rng) {
     }
   }
 
+  // Post-process cache–db topology: override the last two nodes with cache/db
+  // specific properties and force the cache→DB edge to SYNC.
+  if (use_cache_db) {
+    const cache_node = layers[layers.length - 2][0];
+    const db_node = layers[layers.length - 1][0];
+
+    cache_node.node_subtype = "cache";
+    cache_node.hit_rate = randInt(rng, 75, 92) / 100;
+    cache_node.local_latency_ticks = 1; // cache lookup is fast
+    cache_node.max_concurrency = randInt(rng, 15, 25);
+    cache_node.name = pick(rng, CACHE_NAMES);
+    // Queue must comfortably fit burst traffic; don't let the cache itself be the bottleneck.
+    cache_node.queue_limit = Math.max(cache_node.queue_limit, 30);
+
+    db_node.max_concurrency = randInt(rng, 3, 6); // DB is slow, limited concurrency
+    db_node.local_latency_ticks = randInt(rng, 8, 16); // DB is expensive
+    db_node.queue_limit = randInt(rng, 10, 18);
+    db_node.name = pick(rng, DB_NAMES);
+
+    // Cache→DB edge must be SYNC: the cache caller waits for the DB response.
+    const cache_db_edge = edges.find(
+      (e) => e.source_id === cache_node.id && e.target_id === db_node.id,
+    );
+    if (cache_db_edge) {
+      cache_db_edge.mode = "SYNC";
+      // Recalculate timeout now that we know db latency.
+      cache_db_edge.timeout_ticks =
+        db_node.local_latency_ticks * 6 + randInt(rng, 5, 15);
+    }
+  }
+
   return { nodes, edges, layers, entry_node_id: nodes[0].id };
 }
 
@@ -145,6 +202,7 @@ function effectiveSlotTime(node_id, nodes_map, edges) {
 // overestimated and the system is more fragile than the formula predicts.
 function computeLoadFactors(nodes, edges, entry_id) {
   const factors = Object.fromEntries(nodes.map((n) => [n.id, 0]));
+  const nodes_map = Object.fromEntries(nodes.map((n) => [n.id, n]));
   factors[entry_id] = 1;
   // Kahn's algorithm ensures we process each node after all its predecessors.
   const in_deg = Object.fromEntries(nodes.map((n) => [n.id, 0]));
@@ -152,8 +210,13 @@ function computeLoadFactors(nodes, edges, entry_id) {
   const q = nodes.filter((n) => in_deg[n.id] === 0).map((n) => n.id);
   while (q.length) {
     const id = q.shift();
+    const def = nodes_map[id];
+    // Cache nodes only forward (1 - hit_rate) of their traffic downstream.
+    // Under baseline hit rate this keeps the DB at a fraction of total load.
+    const forwarding =
+      def.node_subtype === "cache" ? 1 - (def.hit_rate ?? 0) : 1;
     for (const e of edges.filter((e) => e.source_id === id)) {
-      factors[e.target_id] += factors[id];
+      factors[e.target_id] += factors[id] * forwarding;
       if (--in_deg[e.target_id] === 0) q.push(e.target_id);
     }
   }
@@ -182,6 +245,7 @@ const STRESSOR_TYPES = [
   "TIMEOUT_TRAP",
   "QUOTA_IDENTITY_BUG",
   "NETWORK_PARTITION",
+  "CACHE_FLUSH",
 ];
 
 function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
@@ -195,11 +259,14 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
 
   // QUOTA_IDENTITY_BUG requires at least one bucketed node.
   // NETWORK_PARTITION requires at least one SYNC edge.
+  // CACHE_FLUSH requires at least one cache-subtype node.
   const bucketed = nodes.filter((n) => n.token_bucket);
   const sync_edges = edges.filter((e) => e.mode === "SYNC");
+  const cache_nodes = nodes.filter((n) => n.node_subtype === "cache");
   const available = STRESSOR_TYPES.filter((t) => {
     if (t === "QUOTA_IDENTITY_BUG") return bucketed.length > 0;
     if (t === "NETWORK_PARTITION") return sync_edges.length > 0;
+    if (t === "CACHE_FLUSH") return cache_nodes.length > 0;
     return true;
   });
   const type = forced_type ?? pick(rng, available);
@@ -207,6 +274,7 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
   // If a specific type was forced but can't be applied, signal that.
   if (type === "QUOTA_IDENTITY_BUG" && bucketed.length === 0) return null;
   if (type === "NETWORK_PARTITION" && sync_edges.length === 0) return null;
+  if (type === "CACHE_FLUSH" && cache_nodes.length === 0) return null;
   let description, mutation;
 
   if (type === "LATENCY_SPIKE") {
@@ -310,6 +378,23 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
       old_value: false,
       new_value: true,
     };
+  } else if (type === "CACHE_FLUSH") {
+    // Drop the cache's hit rate to zero — every token now punches through to the DB.
+    // The global arrival rate is unchanged; the thundering herd is internal to the system.
+    const target = pick(rng, cache_nodes);
+    const old_hr = target.hit_rate;
+    nodes.find((n) => n.id === target.id).hit_rate = 0;
+    description =
+      `${target.name} experienced a full cache flush (TTL expiry or invalidation storm). ` +
+      `Hit rate: ${Math.round(old_hr * 100)}% → 0%. ` +
+      `Every request now reaches the database cold.`;
+    mutation = {
+      type,
+      node_id: target.id,
+      property: "hit_rate",
+      old_value: old_hr,
+      new_value: 0,
+    };
   } else {
     // QUOTA_IDENTITY_BUG
     // Collapse a node's generous per-caller bucket into a tiny shared-identity bucket.
@@ -402,6 +487,18 @@ function buildExplanation(failure, events, nodes_map, stressor) {
     );
   }
 
+  if (stressor.type === "CACHE_FLUSH") {
+    const db_node = nodes_map[failure.node_id];
+    return (
+      `${failed_node} was previously shielded by the cache absorbing ` +
+      `${Math.round(stressor.mutation.old_value * 100)}% of traffic. ` +
+      `With the cache flushed, 100% of requests hit the database simultaneously — ` +
+      `a classic thundering herd. ` +
+      `The DB's concurrency limit (${db_node?.max_concurrency ?? "?"} slots) ` +
+      `was overwhelmed and its queue filled in ${failure.tick} ticks.`
+    );
+  }
+
   return failure.detail;
 }
 
@@ -455,7 +552,8 @@ function generateScenario(seed) {
   (function assignBuckets() {
     const lf = computeLoadFactors(nodes, edges, entry_node_id);
     for (const node of nodes.slice(1)) {
-      // skip entry
+      // skip entry; cache nodes don't need token buckets (hit_rate is the filter)
+      if (node.node_subtype === "cache") continue;
       if (rng() < 0.35) {
         const effective = arrival_rate * (lf[node.id] || 1);
         const headroom = randInt(rng, 2, 3);

@@ -165,9 +165,24 @@ class Simulator {
     this._promote(node_id);
   }
 
+  // Returns true if this token is a cache hit at a cache-subtype node.
+  // Uses a deterministic hash of the token's numeric prefix so results are
+  // reproducible across runs with the same seed.
+  _cache_hit(node_id, token) {
+    const def = this.nodes[node_id];
+    if (def.node_subtype !== "cache" || def.hit_rate == null) return false;
+    const num = parseInt(String(token.id).split(":")[0], 10);
+    return (num % 1000) < def.hit_rate * 1000;
+  }
+
   // Called when local processing finishes. Dispatches to downstream nodes.
   // Returns true if slot should be released immediately (no SYNC waits added).
   _dispatch(slot, node_id) {
+    // Cache hit: serve from memory, skip all downstream edges.
+    if (this._cache_hit(node_id, slot.token)) {
+      return true;
+    }
+
     const out = this._edges_from(node_id);
     if (out.length === 0) return true; // exit node
 

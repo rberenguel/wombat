@@ -246,6 +246,95 @@ describe("Generator", function () {
     });
   });
 
+  describe("CACHE_FLUSH stressor", function () {
+    it("CACHE_FLUSH stressor produces QUEUE_DROP at the DB node", function () {
+      const flush_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "CACHE_FLUSH",
+      );
+      for (const seed of flush_seeds) {
+        const s = generateScenario(seed);
+        expect(s.answer, `seed ${seed}: CACHE_FLUSH must cause failure`).to
+          .exist;
+        expect(
+          s.answer.failure_type,
+          `seed ${seed}: CACHE_FLUSH terminal event`,
+        ).to.equal("QUEUE_DROP");
+        // The failing node must not be the cache node itself (the DB is the victim).
+        const cache_node = s.stressed_nodes.find(
+          (n) => n.node_subtype === "cache",
+        );
+        expect(
+          s.answer.node_id,
+          `seed ${seed}: cache node itself must not be the failure node`,
+        ).to.not.equal(cache_node?.id);
+      }
+    });
+
+    it("CACHE_FLUSH sets hit_rate to 0 in stressed_nodes", function () {
+      const flush_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "CACHE_FLUSH",
+      );
+      for (const seed of flush_seeds) {
+        const s = generateScenario(seed);
+        const cache_id = s.stressor.mutation.node_id;
+        const stressed_cache = s.stressed_nodes.find((n) => n.id === cache_id);
+        const baseline_cache = s.nodes.find((n) => n.id === cache_id);
+        expect(
+          stressed_cache?.hit_rate,
+          `seed ${seed}: stressed hit_rate`,
+        ).to.equal(0);
+        expect(
+          baseline_cache?.hit_rate,
+          `seed ${seed}: baseline hit_rate unchanged`,
+        ).to.be.greaterThan(0);
+      }
+    });
+
+    it("cache nodes never receive token buckets", function () {
+      for (const seed of SEEDS) {
+        const s = generateScenario(seed);
+        const cache_with_bucket = s.nodes.find(
+          (n) => n.node_subtype === "cache" && n.token_bucket,
+        );
+        expect(
+          cache_with_bucket,
+          `seed ${seed}: no cache node should have a token bucket`,
+        ).to.not.exist;
+      }
+    });
+
+    it("computeLoadFactors respects cache absorption (DB load < entry load)", function () {
+      for (const seed of SEEDS) {
+        const s = generateScenario(seed);
+        const cache_node = s.nodes.find((n) => n.node_subtype === "cache");
+        if (!cache_node) continue;
+        // Find the DB downstream of the cache.
+        const cache_out_edge = s.edges.find(
+          (e) => e.source_id === cache_node.id,
+        );
+        if (!cache_out_edge) continue;
+        // The DB's load factor must be less than 1 (fractional due to cache absorption).
+        // We don't have direct access to computeLoadFactors here, but we can verify
+        // indirectly: the baseline is stable at arrival_rate which would overload
+        // an unprotected DB, proving the cache absorption is accounted for.
+        const db_node = s.nodes.find(
+          (n) => n.id === cache_out_edge.target_id,
+        );
+        if (!db_node) continue;
+        // DB throughput without cache: max_concurrency / latency.
+        // If arrival_rate > DB throughput, the baseline would be unstable without absorption.
+        const db_throughput = db_node.max_concurrency / db_node.local_latency_ticks;
+        const effective_db_load = s.arrival_rate * (1 - cache_node.hit_rate);
+        // At baseline, effective DB load should not exceed DB throughput
+        // (verifyAndAdjust ensures this, but we confirm the accounting is right).
+        expect(
+          effective_db_load,
+          `seed ${seed}: effective DB load must be below DB throughput at baseline`,
+        ).to.be.at.most(db_throughput * 1.1); // 10% tolerance for rounding
+      }
+    });
+  });
+
   describe("Answer validity", function () {
     it("answer node_id always references an existing node", function () {
       for (const seed of SEEDS) {

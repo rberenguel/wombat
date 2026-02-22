@@ -173,23 +173,61 @@ class GraphRenderer {
   // ── Private drawing helpers ─────────────────────────────────────────────────
 
   _drawNode(svg, node, pos, is_stressed) {
-    const g = svgEl("g", {
-      class: "node" + (is_stressed ? " node--stressed" : ""),
-      "data-id": node.id,
-    });
+    const is_cache = node.node_subtype === "cache";
+    const classes =
+      "node" +
+      (is_stressed ? " node--stressed" : "") +
+      (is_cache ? " node--cache" : "");
+
+    const g = svgEl("g", { class: classes, "data-id": node.id });
     g.style.cursor = "pointer";
 
-    g.appendChild(
-      svgEl("rect", {
-        x: pos.x,
-        y: pos.y,
-        width: NODE_W,
-        height: NODE_H,
-        rx: 6,
-        ry: 6,
-        class: "node-rect",
-      }),
-    );
+    if (is_cache) {
+      // Cylinder shape: rect body + top and bottom ellipse caps.
+      // The ellipses overlap the rect ends, giving the 3D cylinder look.
+      const ey = 10; // half-height of ellipse caps
+      g.appendChild(
+        svgEl("rect", {
+          x: pos.x,
+          y: pos.y + ey,
+          width: NODE_W,
+          height: NODE_H - ey * 2,
+          class: "node-rect",
+        }),
+      );
+      // Bottom ellipse (drawn before top so top cap overlaps it).
+      g.appendChild(
+        svgEl("ellipse", {
+          cx: pos.cx,
+          cy: pos.y + NODE_H - ey,
+          rx: NODE_W / 2,
+          ry: ey,
+          class: "node-ellipse",
+        }),
+      );
+      // Top ellipse.
+      g.appendChild(
+        svgEl("ellipse", {
+          cx: pos.cx,
+          cy: pos.y + ey,
+          rx: NODE_W / 2,
+          ry: ey,
+          class: "node-ellipse",
+        }),
+      );
+    } else {
+      g.appendChild(
+        svgEl("rect", {
+          x: pos.x,
+          y: pos.y,
+          width: NODE_W,
+          height: NODE_H,
+          rx: 6,
+          ry: 6,
+          class: "node-rect",
+        }),
+      );
+    }
 
     // Node name.
     g.appendChild(
@@ -220,8 +258,18 @@ class GraphRenderer {
       }),
     );
 
-    // Token bucket (optional).
-    if (node.token_bucket) {
+    // Cache hit rate (replaces token bucket line for cache nodes).
+    if (is_cache) {
+      g.appendChild(
+        svgText(`hit: ${Math.round((node.hit_rate ?? 0) * 100)}%`, {
+          x: pos.cx,
+          y: pos.y + 70,
+          "text-anchor": "middle",
+          class: "node-cache-stat",
+        }),
+      );
+    } else if (node.token_bucket) {
+      // Token bucket (optional, non-cache nodes only).
       g.appendChild(
         svgText(
           `quota: ${node.token_bucket.capacity}  +${node.token_bucket.refill_rate}/t`,

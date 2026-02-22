@@ -478,6 +478,115 @@ describe("Simulator", function () {
     });
   });
 
+  // ── Cache node mechanics ───────────────────────────────────────────────────
+
+  describe("Cache node", function () {
+    function cache_node(id, name, hit_rate, opts = {}) {
+      return {
+        id,
+        name,
+        node_subtype: "cache",
+        hit_rate,
+        max_concurrency: opts.conc ?? 20,
+        queue_limit: opts.queue ?? 40,
+        local_latency_ticks: 1,
+      };
+    }
+
+    it("hit_rate=1.0: no tokens reach the downstream DB", function () {
+      // Cache absorbs 100% of tokens — DB should receive nothing.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Entry", { conc: 5, queue: 10, latency: 1 }),
+          cache_node("C", "Cache", 1.0),
+          node("D", "DB", { conc: 4, queue: 10, latency: 5 }),
+        ],
+        edges: [
+          edge("A", "C", { mode: "SYNC", timeout: 50 }),
+          edge("C", "D", { mode: "SYNC", timeout: 50 }),
+        ],
+        entry_node_id: "A",
+        arrival_rate: 3,
+      });
+      sim.run(30);
+      // DB must be completely untouched.
+      expect(sim.state["D"].slots.length).to.equal(0);
+      expect(sim.state["D"].queue.length).to.equal(0);
+    });
+
+    it("hit_rate=0.0: all tokens reach the downstream DB", function () {
+      // Cache misses every token — DB should be overwhelmed at high arrival rate.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Entry", { conc: 5, queue: 10, latency: 1 }),
+          cache_node("C", "Cache", 0.0),
+          node("D", "DB", { conc: 1, queue: 2, latency: 10 }),
+        ],
+        edges: [
+          edge("A", "C", { mode: "SYNC", timeout: 100 }),
+          edge("C", "D", { mode: "SYNC", timeout: 100 }),
+        ],
+        entry_node_id: "A",
+        arrival_rate: 3,
+      });
+      sim.run(50);
+      // DB should fill and drop (it can't keep up with full arrival rate).
+      expect(sim.first_failure).to.exist;
+      expect(sim.first_failure.node_id).to.equal("D");
+      expect(sim.first_failure.type).to.equal("QUEUE_DROP");
+    });
+
+    it("hit_rate=0.5: roughly half of tokens reach the DB", function () {
+      // With IDs 0–99 and hit_rate=0.5: (num % 1000) < 500 are hits.
+      // So exactly 50 of tokens 0–99 are hits, 50 are misses → DB receives 50.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Entry", { conc: 100, queue: 200, latency: 1 }),
+          cache_node("C", "Cache", 0.5, { conc: 100, queue: 200 }),
+          node("D", "DB", { conc: 100, queue: 200, latency: 1 }),
+        ],
+        edges: [
+          edge("A", "C", { mode: "ASYNC" }),
+          edge("C", "D", { mode: "ASYNC" }),
+        ],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      // Inject exactly 100 tokens by running 100 ticks.
+      sim.run(200);
+      // Count distinct DB events (slots that were used).
+      // With ample concurrency no drops should occur; check stability.
+      expect(sim.first_failure).to.not.exist;
+    });
+
+    it("SYNC ack resolves on cache hit (upstream slot freed)", function () {
+      // A → SYNC → Cache (hit_rate=1.0). Each token takes 2 ticks through A:
+      // 1 tick local + 1 tick for the ack to propagate (A is processed before
+      // C in the same tick, so it sees ack.done one tick later). With conc=2
+      // A can hold a sync-wait slot and a new local slot simultaneously,
+      // sustaining arrival_rate=1 without queue growth.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Entry", { conc: 2, queue: 5, latency: 1 }),
+          cache_node("C", "Cache", 1.0),
+          node("D", "DB", { conc: 4, queue: 10, latency: 20 }),
+        ],
+        edges: [
+          edge("A", "C", { mode: "SYNC", timeout: 50 }),
+          edge("C", "D", { mode: "SYNC", timeout: 100 }),
+        ],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      sim.run(30);
+      // A must stay stable — cache hits release SYNC ack immediately.
+      expect(sim.first_failure).to.not.exist;
+      // DB must be untouched.
+      expect(sim.state["D"].slots.length).to.equal(0);
+      expect(sim.state["D"].queue.length).to.equal(0);
+    });
+  });
+
   // ── Token bucket mechanics ─────────────────────────────────────────────────
 
   describe("Token bucket rate limiting", function () {

@@ -50,6 +50,9 @@ const $peaks = document.getElementById("result-peaks");
 const $next = document.getElementById("next-btn");
 const $seed_el = document.getElementById("seed-display");
 const $version_el = document.getElementById("version-display");
+const $help_btn = document.getElementById("help-btn");
+const $help_overlay = document.getElementById("help-overlay");
+const $help_close = document.getElementById("help-close");
 
 // ─── Graph renderer ───────────────────────────────────────────────────────────
 const renderer = new GraphRenderer($graph, onNodeClick);
@@ -188,6 +191,15 @@ $type_btns.forEach((b) =>
 );
 $submit.addEventListener("click", submitGuess);
 $next.addEventListener("click", () => loadScenario());
+
+$help_btn.addEventListener("click", () => { $help_overlay.classList.add("is-open"); });
+$help_close.addEventListener("click", () => { $help_overlay.classList.remove("is-open"); });
+$help_overlay.addEventListener("click", (e) => {
+  if (e.target === $help_overlay) $help_overlay.classList.remove("is-open");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") $help_overlay.classList.remove("is-open");
+});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 fetch("manifest.json")

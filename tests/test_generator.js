@@ -183,6 +183,49 @@ describe("Generator", function () {
       }
     });
 
+    it("NETWORK_PARTITION marks exactly one SYNC edge as partitioned in stressed_edges", function () {
+      const partition_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "NETWORK_PARTITION",
+      );
+      for (const seed of partition_seeds) {
+        const s = generateScenario(seed);
+        const partitioned = s.stressed_edges.filter((e) => e.partitioned);
+        expect(
+          partitioned.length,
+          `seed ${seed}: exactly one edge partitioned`,
+        ).to.equal(1);
+        expect(
+          partitioned[0].mode,
+          `seed ${seed}: partitioned edge must be SYNC`,
+        ).to.equal("SYNC");
+        // Baseline edges must not be partitioned.
+        const baseline_partitioned = s.edges.filter((e) => e.partitioned);
+        expect(
+          baseline_partitioned.length,
+          `seed ${seed}: baseline has no partitioned edges`,
+        ).to.equal(0);
+      }
+    });
+
+    it("NETWORK_PARTITION answer is QUEUE_DROP and never at the partitioned target", function () {
+      const partition_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "NETWORK_PARTITION",
+      );
+      for (const seed of partition_seeds) {
+        const s = generateScenario(seed);
+        if (!s.answer) continue;
+        // With no retry policy, timeouts release slots (TIMEOUT_CASCADE) and the
+        // system runs until a queue fills — the terminal event must be QUEUE_DROP.
+        expect(s.answer.failure_type, `seed ${seed}`).to.equal("QUEUE_DROP");
+        // The partitioned target receives nothing, so it can never be the failure point.
+        const partitioned_edge = s.stressed_edges.find((e) => e.partitioned);
+        expect(
+          s.answer.node_id,
+          `seed ${seed}: partitioned target must not be the failure node`,
+        ).to.not.equal(partitioned_edge.target_id);
+      }
+    });
+
     it("TIMEOUT_TRAP sets timeout below downstream latency", function () {
       const trap_seeds = SEEDS.filter(
         (seed) => generateScenario(seed).stressor.type === "TIMEOUT_TRAP",
@@ -222,6 +265,7 @@ describe("Generator", function () {
         "TIMEOUT_CASCADE",
         "DEADLINE_EXCEEDED",
         "RATE_LIMIT_DROP",
+        // NETWORK_PARTITION causes QUEUE_DROP at the upstream caller — covered above.
       ];
       for (const seed of SEEDS) {
         const s = generateScenario(seed);

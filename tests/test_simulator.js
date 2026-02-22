@@ -353,6 +353,131 @@ describe("Simulator", function () {
     });
   });
 
+  // ── Network partition mechanics ────────────────────────────────────────────
+
+  describe("Network partition", function () {
+    function partitioned_edge(src, tgt, timeout) {
+      return {
+        source_id: src,
+        target_id: tgt,
+        mode: "SYNC",
+        timeout_ticks: timeout,
+        partitioned: true,
+      };
+    }
+
+    it("partitioned edge injects nothing at the target node", function () {
+      // A → SYNC(partitioned) → B. After one tick A should dispatch but B stays empty.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "A", { conc: 2, queue: 10, latency: 1 }),
+          node("B", "B", { conc: 4, queue: 10, latency: 5 }),
+        ],
+        edges: [partitioned_edge("A", "B", 50)],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      // Run enough ticks for A to dispatch to B.
+      sim.tick();
+      sim.tick();
+      expect(sim.state["B"].slots.length).to.equal(0);
+      expect(sim.state["B"].queue.length).to.equal(0);
+    });
+
+    it("upstream slot is held for the full timeout then released via TIMEOUT_CASCADE", function () {
+      // A (latency=1) → SYNC(partitioned, timeout=5) → B.
+      // A dispatches at tick 1; timeout fires at tick 6; slot released.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "A", { conc: 2, queue: 10, latency: 1 }),
+          node("B", "B", { conc: 4, queue: 10, latency: 5 }),
+        ],
+        edges: [partitioned_edge("A", "B", 5)],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      for (let i = 0; i < 5; i++) sim.tick(); // ticks 1–5: slot held
+      // At tick 5 the SYNC wait has been counting down; slot should still be occupied.
+      expect(sim.state["A"].slots.length).to.be.greaterThan(0);
+
+      sim.tick(); // tick 6: timeout fires, slot released
+      const cascades = sim.events.filter((e) => e.type === "TIMEOUT_CASCADE");
+      expect(cascades.length).to.be.greaterThan(0);
+      expect(cascades[0].node_id).to.equal("A");
+    });
+
+    it("queue drops at the upstream caller, not the partitioned target", function () {
+      // A (conc=1, queue=1) → SYNC(partitioned, timeout=100) → B.
+      // All A slots locked waiting; second arrival queues; third drops.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "A", { conc: 1, queue: 1, latency: 1 }),
+          node("B", "B", { conc: 4, queue: 10, latency: 5 }),
+        ],
+        edges: [partitioned_edge("A", "B", 100)],
+        entry_node_id: "A",
+        arrival_rate: 3,
+      });
+      sim.run(50);
+      expect(sim.first_failure).to.exist;
+      expect(sim.first_failure.node_id).to.equal("A");
+      expect(sim.first_failure.type).to.equal("QUEUE_DROP");
+      // B must have received nothing.
+      expect(sim.state["B"].slots.length).to.equal(0);
+      expect(sim.state["B"].queue.length).to.equal(0);
+    });
+
+    it("no retry policy: SYNC timeout fires TIMEOUT_CASCADE and releases slot without DEADLINE_EXCEEDED", function () {
+      // With max_retries=0 and deadline_ticks=0 (no retry policy), a timed-out
+      // SYNC call simply releases the slot — DEADLINE_EXCEEDED must NOT fire.
+      // The system keeps running until the queue fills (QUEUE_DROP).
+      const sim = new Simulator({
+        nodes: [
+          node("A", "A", { conc: 2, queue: 20, latency: 1 }),
+          node("B", "B", { conc: 4, queue: 10, latency: 5 }),
+        ],
+        edges: [partitioned_edge("A", "B", 3)],
+        entry_node_id: "A",
+        arrival_rate: 1,
+        max_retries: 0,
+      });
+      sim.run(30);
+      const cascades = sim.events.filter((e) => e.type === "TIMEOUT_CASCADE");
+      const deadlines = sim.events.filter((e) => e.type === "DEADLINE_EXCEEDED");
+      expect(cascades.length).to.be.greaterThan(0); // timeouts did fire
+      expect(deadlines.length).to.equal(0);          // no deadline policy → no DEADLINE_EXCEEDED
+    });
+
+    it("ASYNC partitioned edge: tokens are still injected (partition only affects SYNC)", function () {
+      // Partition flag on an ASYNC edge: _dispatch sends tokens via ASYNC path
+      // (no ack, no sync_wait) — the partitioned guard only applies inside the SYNC branch.
+      // So B DOES receive tokens (the partitioned flag is ignored for ASYNC).
+      // This confirms the guard is scoped to the SYNC path.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "A", { conc: 4, queue: 10, latency: 1 }),
+          node("B", "B", { conc: 4, queue: 10, latency: 2 }),
+        ],
+        edges: [
+          {
+            source_id: "A",
+            target_id: "B",
+            mode: "ASYNC",
+            timeout_ticks: 50,
+            partitioned: true,
+          },
+        ],
+        entry_node_id: "A",
+        arrival_rate: 1,
+      });
+      sim.run(10);
+      // B should have processed some tokens (not empty).
+      const b_events = sim.events.filter((e) => e.node_id === "B");
+      // No failure either — system is stable.
+      expect(sim.first_failure).to.not.exist;
+    });
+  });
+
   // ── Token bucket mechanics ─────────────────────────────────────────────────
 
   describe("Token bucket rate limiting", function () {

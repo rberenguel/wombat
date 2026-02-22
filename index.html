@@ -92,6 +92,9 @@
       .ph-light.ph-x-circle:before {
         content: "\e4f8";
       }
+      .ph-light.ph-question:before {
+        content: "\e3e8";
+      }
     </style>
   </head>
   <body>
@@ -120,7 +123,10 @@
         <!-- ── Graph panel ── -->
         <section class="panel" id="graph-panel">
           <h2 class="panel-title">
-            <i class="ph-light ph-cpu"></i> ARCHITECTURE
+            <span><i class="ph-light ph-cpu"></i> ARCHITECTURE</span>
+            <button class="help-btn" id="help-btn" aria-label="How to read this diagram">
+              <i class="ph-light ph-question"></i>
+            </button>
           </h2>
           <div class="legend">
             <span class="legend-sync"
@@ -131,6 +137,9 @@
             >
             <span class="legend-stress"
               ><i class="ph-light ph-lightning"></i> stressor target</span
+            >
+            <span class="legend-partition"
+              ><i class="ph-light ph-prohibit"></i> partitioned</span
             >
           </div>
           <div id="graph-container"></div>
@@ -204,6 +213,59 @@
           </button>
         </section>
       </main>
+
+      <!-- ── Diagram help modal ── -->
+      <div class="modal-overlay" id="help-overlay">
+        <div class="modal" role="dialog" aria-label="Diagram guide">
+          <div class="modal-header">
+            <span class="modal-title">HOW TO READ THE DIAGRAM</span>
+            <button class="modal-close" id="help-close" aria-label="Close">
+              <i class="ph-light ph-x-circle"></i>
+            </button>
+          </div>
+          <div class="modal-body">
+
+            <section class="modal-section">
+              <h3 class="modal-section-title">NODE STATS</h3>
+              <dl class="modal-dl">
+                <dt>conc: N</dt>
+                <dd>Concurrency slots — how many requests this node can handle simultaneously. When all slots are busy, new arrivals queue up.</dd>
+                <dt>q: N</dt>
+                <dd>Queue limit — how many requests wait while all slots are occupied. Once full, further arrivals are dropped immediately → <strong>Queue Drop</strong>.</dd>
+                <dt>latency: N ticks</dt>
+                <dd>How long each request spends processing inside this node before being forwarded downstream.</dd>
+                <dt>quota: N +R/t</dt>
+                <dd>Token bucket rate limit. Holds at most N tokens, refills R per tick. An empty bucket means instant rejection → <strong>Rate Limited</strong>.</dd>
+              </dl>
+            </section>
+
+            <section class="modal-section">
+              <h3 class="modal-section-title">EDGES</h3>
+              <dl class="modal-dl">
+                <dt>SYNC</dt>
+                <dd>The caller holds its concurrency slot until the downstream responds. A slow or unreachable downstream directly starves the caller's capacity.</dd>
+                <dt>ASYNC</dt>
+                <dd>The caller releases its slot immediately after forwarding. Downstream slowness doesn't back up the caller.</dd>
+                <dt>timeout: N</dt>
+                <dd>How long a SYNC caller waits before declaring the call failed and releasing its slot.</dd>
+                <dt>PARTITIONED</dt>
+                <dd>The link silently drops all packets. The caller can't tell this from an infinitely slow response — it waits the full timeout on every call.</dd>
+              </dl>
+            </section>
+
+            <section class="modal-section">
+              <h3 class="modal-section-title">SYSTEM POLICY</h3>
+              <dl class="modal-dl">
+                <dt>retries: N (exp. backoff)</dt>
+                <dd>On SYNC timeout the caller retries, doubling the wait each time (T → 2T → 4T…). The slot is held throughout. Budget exhausted → <strong>Deadline Exceeded</strong>.</dd>
+                <dt>retries: none</dt>
+                <dd>A SYNC timeout simply releases the slot. The system limps along at reduced throughput until a queue fills → <strong>Queue Drop</strong>.</dd>
+              </dl>
+            </section>
+
+          </div>
+        </div>
+      </div>
     </div>
 
     <script src="js/simulator.js"></script>

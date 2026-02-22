@@ -16,6 +16,7 @@
   --sync-color: #58a6ff;
   --async-color: #3fb950;
   --stress-color: #f85149;
+  --partition-color: #ff6e6e;
   --node-color: #1f2937;
   --node-border: #374151;
 }
@@ -123,6 +124,108 @@ h1 {
   margin-top: 4px;
 }
 
+/* ─── Help button (graph panel title) ──────────────────────────────────────── */
+.help-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0;
+  line-height: 1;
+  margin-left: auto;
+  transition: color 0.15s;
+}
+.help-btn:hover {
+  color: var(--accent);
+}
+
+/* ─── Help modal ────────────────────────────────────────────────────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal-overlay.is-open {
+  display: flex;
+}
+.modal {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 520px;
+  width: calc(100% - 32px);
+  max-height: 80vh;
+  overflow-y: auto;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg2);
+}
+.modal-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+}
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+.modal-close:hover {
+  color: var(--text);
+}
+.modal-body {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.modal-section-title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.modal-dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  align-items: baseline;
+}
+.modal-dl dt {
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.modal-dl dd {
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.modal-dl strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
 /* ─── Graph panel ───────────────────────────────────────────────────────────── */
 .legend {
   display: flex;
@@ -139,6 +242,9 @@ h1 {
 }
 .legend-stress {
   color: var(--stress-color);
+}
+.legend-partition {
+  color: var(--partition-color);
 }
 
 #graph-container {
@@ -222,6 +328,12 @@ h1 {
   stroke-width: 2;
   opacity: 0.9;
 }
+.edge--partition {
+  stroke: var(--partition-color);
+  stroke-width: 2;
+  stroke-dasharray: 8 4;
+  opacity: 0.9;
+}
 
 .edge-label-bg {
   fill: var(--bg2);
@@ -244,6 +356,10 @@ h1 {
 }
 .edge-label--stress {
   fill: var(--stress-color);
+  opacity: 1;
+}
+.edge-label--partition {
+  fill: var(--partition-color);
   opacity: 1;
 }
 

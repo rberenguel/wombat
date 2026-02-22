@@ -96,14 +96,17 @@ class GraphRenderer {
     // Defs: arrowhead markers.
     const defs = svgEl("defs");
     defs.innerHTML = `
-      <marker id="arrow-sync"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <marker id="arrow-sync"      markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
         <path d="M0,0 L0,6 L8,3 z" fill="var(--sync-color)" />
       </marker>
-      <marker id="arrow-async" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <marker id="arrow-async"     markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
         <path d="M0,0 L0,6 L8,3 z" fill="var(--async-color)" />
       </marker>
-      <marker id="arrow-stress" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <marker id="arrow-stress"    markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
         <path d="M0,0 L0,6 L8,3 z" fill="var(--stress-color)" />
+      </marker>
+      <marker id="arrow-partition" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+        <path d="M0,0 L0,6 L8,3 z" fill="var(--partition-color)" />
       </marker>
     `;
     svg.appendChild(defs);
@@ -260,11 +263,13 @@ class GraphRenderer {
     const cp1x = x1 + dx * 0.4;
     const cp2x = x2 - dx * 0.4;
 
-    const color_class = is_stressed
-      ? "stress"
-      : edge.mode === "SYNC"
-        ? "sync"
-        : "async";
+    const color_class = edge.partitioned
+      ? "partition"
+      : is_stressed
+        ? "stress"
+        : edge.mode === "SYNC"
+          ? "sync"
+          : "async";
     const marker = `url(#arrow-${color_class})`;
 
     const path = svgEl("path", {
@@ -282,9 +287,11 @@ class GraphRenderer {
     const lbl_g = svgEl("g");
 
     if (edge.mode === "SYNC") {
-      // Two-line label: "SYNC" on top, "timeout:N" below.
-      const timeout_str = `timeout:${edge.timeout_ticks}`;
-      const label_w = Math.ceil(timeout_str.length * 5.5) + 8; // timeout line is wider
+      // Two-line label: "SYNC" on top, timeout or partition status below.
+      const timeout_str = edge.partitioned
+        ? "PARTITIONED"
+        : `timeout:${edge.timeout_ticks}`;
+      const label_w = Math.ceil(timeout_str.length * 5.5) + 8;
 
       lbl_g.appendChild(
         svgEl("rect", {

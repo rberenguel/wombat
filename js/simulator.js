@@ -188,7 +188,11 @@ class Simulator {
         // SYNC: create ack, hold slot until downstream resolves it.
         const ack = new SyncAck();
         t.release_acks.push(ack);
-        this._inject(edge.target_id, t);
+        if (!edge.partitioned) {
+          // Partitioned edges black-hole the token: ack never resolves until
+          // timeout fires, then TIMEOUT_CASCADE runs the normal path.
+          this._inject(edge.target_id, t);
+        }
         slot.sync_waits.push({
           ack,
           timeout_remaining: edge.timeout_ticks,
@@ -291,13 +295,20 @@ class Simulator {
                 slot.token.retry_count++;
                 sw.timeout_remaining =
                   sw.edge.timeout_ticks * Math.pow(2, slot.token.retry_count);
-              } else {
+              } else if (this.max_retries > 0 || this.deadline_ticks > 0) {
+                // A retry budget or wall-clock deadline was configured and is
+                // now exhausted — this is a true DEADLINE_EXCEEDED.
                 this._log(
                   "DEADLINE_EXCEEDED",
                   node_id,
                   slot.token,
                   `Retries/deadline exhausted on SYNC to ${this.nodes[sw.edge.target_id].name}`,
                 );
+                sw.done = true;
+              } else {
+                // No retry policy at all — SYNC timeout simply releases the
+                // slot (TIMEOUT_CASCADE already logged above). The system
+                // keeps running; queue pressure determines the terminal event.
                 sw.done = true;
               }
             }

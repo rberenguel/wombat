@@ -181,6 +181,7 @@ const STRESSOR_TYPES = [
   "ARRIVAL_SPIKE",
   "TIMEOUT_TRAP",
   "QUOTA_IDENTITY_BUG",
+  "NETWORK_PARTITION",
 ];
 
 function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
@@ -193,14 +194,19 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
   edges = edges.map((e) => ({ ...e }));
 
   // QUOTA_IDENTITY_BUG requires at least one bucketed node.
+  // NETWORK_PARTITION requires at least one SYNC edge.
   const bucketed = nodes.filter((n) => n.token_bucket);
-  const available = STRESSOR_TYPES.filter(
-    (t) => t !== "QUOTA_IDENTITY_BUG" || bucketed.length > 0,
-  );
+  const sync_edges = edges.filter((e) => e.mode === "SYNC");
+  const available = STRESSOR_TYPES.filter((t) => {
+    if (t === "QUOTA_IDENTITY_BUG") return bucketed.length > 0;
+    if (t === "NETWORK_PARTITION") return sync_edges.length > 0;
+    return true;
+  });
   const type = forced_type ?? pick(rng, available);
 
   // If a specific type was forced but can't be applied, signal that.
   if (type === "QUOTA_IDENTITY_BUG" && bucketed.length === 0) return null;
+  if (type === "NETWORK_PARTITION" && sync_edges.length === 0) return null;
   let description, mutation;
 
   if (type === "LATENCY_SPIKE") {
@@ -282,6 +288,28 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
       old_value: old_v,
       new_value: new_v,
     };
+  } else if (type === "NETWORK_PARTITION") {
+    // Sever a SYNC edge silently: tokens sent across it are black-holed.
+    // The upstream caller cannot distinguish this from an infinitely slow response
+    // and waits the full timeout_ticks on every call, tying up its concurrency slots.
+    const edge = pick(rng, sync_edges);
+    const src_name = nodes.find((n) => n.id === edge.source_id).name;
+    const tgt_name = nodes.find((n) => n.id === edge.target_id).name;
+    edges.find(
+      (e) => e.source_id === edge.source_id && e.target_id === edge.target_id,
+    ).partitioned = true;
+    description =
+      `Network partition between ${src_name} and ${tgt_name}. ` +
+      `Packets are silently dropped — no TCP RST, no error response. ` +
+      `${src_name} cannot distinguish this from an infinitely slow downstream ` +
+      `and waits the full ${edge.timeout_ticks}-tick timeout on every SYNC call.`;
+    mutation = {
+      type,
+      edge,
+      property: "partitioned",
+      old_value: false,
+      new_value: true,
+    };
   } else {
     // QUOTA_IDENTITY_BUG
     // Collapse a node's generous per-caller bucket into a tiny shared-identity bucket.
@@ -359,6 +387,19 @@ function buildExplanation(failure, events, nodes_map, stressor) {
   }
   if (stressor.type === "TIMEOUT_TRAP") {
     return `After repeated SYNC timeouts, ${failed_node}'s queue filled with tokens that could not complete — each held an upstream slot and blocked further progress until the buffer was exhausted.`;
+  }
+
+  if (stressor.type === "NETWORK_PARTITION") {
+    const tgt_name =
+      nodes_map[stressor.mutation.edge.target_id]?.name ??
+      stressor.mutation.edge.target_id;
+    return (
+      `${tgt_name} became unreachable — all packets on the link were silently dropped with no error response. ` +
+      `${failed_node} had no way to distinguish a partition from an infinitely slow downstream ` +
+      `and waited the full ${stressor.mutation.edge.timeout_ticks} ticks on every SYNC call. ` +
+      `With all concurrency slots occupied by calls that would never complete, ` +
+      `${failed_node}'s queue filled and began dropping requests.`
+    );
   }
 
   return failure.detail;

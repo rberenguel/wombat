@@ -48,20 +48,24 @@
 ## Files Touched
 
 ### Core Logic
+
 - **js/simulator.js**: `_cache_hit()` method; `_dispatch()` cache-hit early return
 - **js/generator.js**: Cache-DB topology; `computeLoadFactors` cache forwarding; `assignBuckets` skip; `CACHE_FLUSH` stressor + explanation; `CACHE_NAMES`/`DB_NAMES` pools
 
 ### UI
+
 - **js/graph.js**: Cylinder rendering for cache nodes; hit rate stat line
 - **js/main.js**: Intro screen show/hide; `#intro-version` population
 - **index.html**: Intro screen HTML; cache legend; help modal update; `#next-btn` moved to quiz-actions; label tweak ("Select the failing node above")
 - **style.css**: `--cache-color`; `.node-ellipse`; `.node-cache-stat`; `.legend-cache`; `.intro-screen` + all intro sub-styles; `.quiz-actions`
 
 ### Tests
+
 - **tests/test_simulator.js**: 4 cache node tests
 - **tests/test_generator.js**: 4 CACHE_FLUSH / cache invariant tests
 
 ### Plans (reference only)
+
 - **plans/20260222-cache-thundering-herd.md**: Implemented ✓
 - **plans/20260222-retry-storms.md**: Not yet implemented
 - **plans/20260222-circuit-breakers.md**: Not yet implemented

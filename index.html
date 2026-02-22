@@ -5,6 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0d1117" />
     <title>WoMbat</title>
+    <meta
+      name="description"
+      content="Distributed systems failure puzzles. Guess which node fails first and why."
+    />
+    <!-- Open Graph -->
+    <meta
+      property="og:title"
+      content="WoMbat — distributed systems failure puzzles"
+    />
+    <meta
+      property="og:description"
+      content="Guess which node fails first and why. Queues, timeouts, rate limits, thundering herds."
+    />
+    <meta property="og:image" content="media/wombat.png" />
+    <meta property="og:image:width" content="1493" />
+    <meta property="og:image:height" content="1161" />
+    <meta property="og:type" content="website" />
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta
+      name="twitter:title"
+      content="WoMbat — distributed systems failure puzzles"
+    />
+    <meta
+      name="twitter:description"
+      content="Guess which node fails first and why. Queues, timeouts, rate limits, thundering herds."
+    />
+    <meta name="twitter:image" content="media/wombat.png" />
     <link rel="icon" href="favicon.ico" sizes="any" />
     <link rel="icon" type="image/png" href="icon.png" />
     <link rel="apple-touch-icon" href="icon.png" />
@@ -105,11 +133,15 @@
         <h1 class="intro-title">
           <span class="brand-wom">WoM</span><span class="brand-bat">bat</span>
         </h1>
-        <div class="intro-subtitle">distributed systems triage</div>
+        <div class="intro-subtitle">distributed systems failure puzzles</div>
         <div id="intro-version" class="intro-version"></div>
         <ul class="intro-rules">
-          <li>A distributed system is melting down. Read the incident report.</li>
-          <li>Study the architecture: node capacities, edge types, timeouts.</li>
+          <li>
+            A distributed system is melting down. Read the incident report.
+          </li>
+          <li>
+            Study the architecture: node capacities, edge types, timeouts.
+          </li>
           <li>Predict which node fails first — and what kills it.</li>
         </ul>
         <button id="intro-begin-btn" class="intro-begin-btn">
@@ -122,7 +154,7 @@
     <div id="app">
       <header>
         <div class="header-inner">
-          <img id="header-icon" src="icon.png"/>
+          <img id="header-icon" src="icon.png" />
           <h1>
             <span class="brand-wom">WoM</span><span class="brand-bat">bat</span>
           </h1>
@@ -146,7 +178,11 @@
         <section class="panel" id="graph-panel">
           <h2 class="panel-title">
             <span><i class="ph-light ph-cpu"></i> ARCHITECTURE</span>
-            <button class="help-btn" id="help-btn" aria-label="How to read this diagram">
+            <button
+              class="help-btn"
+              id="help-btn"
+              aria-label="How to read this diagram"
+            >
               <i class="ph-light ph-question"></i>
             </button>
           </h2>
@@ -251,20 +287,39 @@
             </button>
           </div>
           <div class="modal-body">
-
             <section class="modal-section">
               <h3 class="modal-section-title">NODE STATS</h3>
               <dl class="modal-dl">
                 <dt>conc: N</dt>
-                <dd>Concurrency slots — how many requests this node can handle simultaneously. When all slots are busy, new arrivals queue up.</dd>
+                <dd>
+                  Concurrency slots — how many requests this node can handle
+                  simultaneously. When all slots are busy, new arrivals queue
+                  up.
+                </dd>
                 <dt>q: N</dt>
-                <dd>Queue limit — how many requests wait while all slots are occupied. Once full, further arrivals are dropped immediately → <strong>Queue Drop</strong>.</dd>
+                <dd>
+                  Queue limit — how many requests wait while all slots are
+                  occupied. Once full, further arrivals are dropped immediately
+                  → <strong>Queue Drop</strong>.
+                </dd>
                 <dt>latency: N ticks</dt>
-                <dd>How long each request spends processing inside this node before being forwarded downstream.</dd>
+                <dd>
+                  How long each request spends processing inside this node
+                  before being forwarded downstream.
+                </dd>
                 <dt>quota: N +R/t</dt>
-                <dd>Token bucket rate limit. Holds at most N tokens, refills R per tick. An empty bucket means instant rejection → <strong>Rate Limited</strong>.</dd>
+                <dd>
+                  Token bucket rate limit. Holds at most N tokens, refills R per
+                  tick. An empty bucket means instant rejection →
+                  <strong>Rate Limited</strong>.
+                </dd>
                 <dt>hit: N%</dt>
-                <dd>Cache hit rate (cylinder-shaped nodes). Requests served from memory at this rate — only the remainder reach the downstream database. A cache flush drops this to 0%, sending every request straight to the DB → <strong>thundering herd</strong>.</dd>
+                <dd>
+                  Cache hit rate (cylinder-shaped nodes). Requests served from
+                  memory at this rate — only the remainder reach the downstream
+                  database. A cache flush drops this to 0%, sending every
+                  request straight to the DB → <strong>thundering herd</strong>.
+                </dd>
               </dl>
             </section>
 
@@ -272,13 +327,27 @@
               <h3 class="modal-section-title">EDGES</h3>
               <dl class="modal-dl">
                 <dt>SYNC</dt>
-                <dd>The caller holds its concurrency slot until the downstream responds. A slow or unreachable downstream directly starves the caller's capacity.</dd>
+                <dd>
+                  The caller holds its concurrency slot until the downstream
+                  responds. A slow or unreachable downstream directly starves
+                  the caller's capacity.
+                </dd>
                 <dt>ASYNC</dt>
-                <dd>The caller releases its slot immediately after forwarding. Downstream slowness doesn't back up the caller.</dd>
+                <dd>
+                  The caller releases its slot immediately after forwarding.
+                  Downstream slowness doesn't back up the caller.
+                </dd>
                 <dt>timeout: N</dt>
-                <dd>How long a SYNC caller waits before declaring the call failed and releasing its slot.</dd>
+                <dd>
+                  How long a SYNC caller waits before declaring the call failed
+                  and releasing its slot.
+                </dd>
                 <dt>PARTITIONED</dt>
-                <dd>The link silently drops all packets. The caller can't tell this from an infinitely slow response — it waits the full timeout on every call.</dd>
+                <dd>
+                  The link silently drops all packets. The caller can't tell
+                  this from an infinitely slow response — it waits the full
+                  timeout on every call.
+                </dd>
               </dl>
             </section>
 
@@ -286,12 +355,19 @@
               <h3 class="modal-section-title">SYSTEM POLICY</h3>
               <dl class="modal-dl">
                 <dt>retries: N (exp. backoff)</dt>
-                <dd>On SYNC timeout the caller retries, doubling the wait each time (T → 2T → 4T…). The slot is held throughout. Budget exhausted → <strong>Deadline Exceeded</strong>.</dd>
+                <dd>
+                  On SYNC timeout the caller retries, doubling the wait each
+                  time (T → 2T → 4T…). The slot is held throughout. Budget
+                  exhausted → <strong>Deadline Exceeded</strong>.
+                </dd>
                 <dt>retries: none</dt>
-                <dd>A SYNC timeout simply releases the slot. The system limps along at reduced throughput until a queue fills → <strong>Queue Drop</strong>.</dd>
+                <dd>
+                  A SYNC timeout simply releases the slot. The system limps
+                  along at reduced throughput until a queue fills →
+                  <strong>Queue Drop</strong>.
+                </dd>
               </dl>
             </section>
-
           </div>
         </div>
       </div>

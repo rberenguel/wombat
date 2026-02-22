@@ -317,13 +317,12 @@ describe("Generator", function () {
         // We don't have direct access to computeLoadFactors here, but we can verify
         // indirectly: the baseline is stable at arrival_rate which would overload
         // an unprotected DB, proving the cache absorption is accounted for.
-        const db_node = s.nodes.find(
-          (n) => n.id === cache_out_edge.target_id,
-        );
+        const db_node = s.nodes.find((n) => n.id === cache_out_edge.target_id);
         if (!db_node) continue;
         // DB throughput without cache: max_concurrency / latency.
         // If arrival_rate > DB throughput, the baseline would be unstable without absorption.
-        const db_throughput = db_node.max_concurrency / db_node.local_latency_ticks;
+        const db_throughput =
+          db_node.max_concurrency / db_node.local_latency_ticks;
         const effective_db_load = s.arrival_rate * (1 - cache_node.hit_rate);
         // At baseline, effective DB load should not exceed DB throughput
         // (verifyAndAdjust ensures this, but we confirm the accounting is right).
@@ -331,6 +330,83 @@ describe("Generator", function () {
           effective_db_load,
           `seed ${seed}: effective DB load must be below DB throughput at baseline`,
         ).to.be.at.most(db_throughput * 1.1); // 10% tolerance for rounding
+      }
+    });
+  });
+
+  describe("AGGRESSIVE_RETRIES stressor", function () {
+    it("AGGRESSIVE_RETRIES causes QUEUE_DROP at the downstream (not entry, not upstream caller)", function () {
+      const ar_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "AGGRESSIVE_RETRIES",
+      );
+      for (const seed of ar_seeds) {
+        const s = generateScenario(seed);
+        expect(s.answer, `seed ${seed}: AGGRESSIVE_RETRIES must cause failure`)
+          .to.exist;
+        expect(
+          s.answer.failure_type,
+          `seed ${seed}: AGGRESSIVE_RETRIES terminal event`,
+        ).to.equal("QUEUE_DROP");
+        // The failing node must not be the entry node (storm is internal).
+        expect(
+          s.answer.node_id,
+          `seed ${seed}: entry node must not be the failure point`,
+        ).to.not.equal(s.entry_node_id);
+      }
+    });
+
+    it("scenario.retry_mode is 'immediate' for AGGRESSIVE_RETRIES", function () {
+      const ar_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "AGGRESSIVE_RETRIES",
+      );
+      for (const seed of ar_seeds) {
+        const s = generateScenario(seed);
+        expect(s.retry_mode, `seed ${seed}: retry_mode`).to.equal("immediate");
+        expect(s.max_retries, `seed ${seed}: max_retries`).to.equal(3);
+      }
+    });
+
+    it("baseline is stable with retry_mode none on the same topology", function () {
+      const ar_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "AGGRESSIVE_RETRIES",
+      );
+      for (const seed of ar_seeds) {
+        const s = generateScenario(seed);
+        // Re-run the baseline (no stressor, no retries) — must stay stable.
+        const sim = new Simulator({
+          nodes: s.nodes,
+          edges: s.edges,
+          entry_node_id: s.entry_node_id,
+          arrival_rate: s.arrival_rate,
+          deadline_ticks: 0,
+          max_retries: 0,
+          retry_mode: "none",
+        });
+        const result = sim.run(400);
+        expect(
+          result.failure,
+          `seed ${seed}: baseline with no retries should be stable`,
+        ).to.not.exist;
+      }
+    });
+
+    it("AGGRESSIVE_RETRIES sets timeout below downstream latency", function () {
+      const ar_seeds = SEEDS.filter(
+        (seed) => generateScenario(seed).stressor.type === "AGGRESSIVE_RETRIES",
+      );
+      for (const seed of ar_seeds) {
+        const s = generateScenario(seed);
+        const m = s.stressor.mutation;
+        const target = s.stressed_nodes.find((n) => n.id === m.edge.target_id);
+        const stressed_edge = s.stressed_edges.find(
+          (e) =>
+            e.source_id === m.edge.source_id &&
+            e.target_id === m.edge.target_id,
+        );
+        expect(
+          stressed_edge.timeout_ticks,
+          `seed ${seed}: timeout must be below downstream latency`,
+        ).to.be.lessThan(target.local_latency_ticks);
       }
     });
   });

@@ -246,6 +246,7 @@ const STRESSOR_TYPES = [
   "QUOTA_IDENTITY_BUG",
   "NETWORK_PARTITION",
   "CACHE_FLUSH",
+  "AGGRESSIVE_RETRIES",
 ];
 
 function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
@@ -267,6 +268,7 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
     if (t === "QUOTA_IDENTITY_BUG") return bucketed.length > 0;
     if (t === "NETWORK_PARTITION") return sync_edges.length > 0;
     if (t === "CACHE_FLUSH") return cache_nodes.length > 0;
+    if (t === "AGGRESSIVE_RETRIES") return sync_edges.length > 0;
     return true;
   });
   const type = forced_type ?? pick(rng, available);
@@ -275,6 +277,7 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
   if (type === "QUOTA_IDENTITY_BUG" && bucketed.length === 0) return null;
   if (type === "NETWORK_PARTITION" && sync_edges.length === 0) return null;
   if (type === "CACHE_FLUSH" && cache_nodes.length === 0) return null;
+  if (type === "AGGRESSIVE_RETRIES" && sync_edges.length === 0) return null;
   let description, mutation;
 
   if (type === "LATENCY_SPIKE") {
@@ -395,6 +398,35 @@ function applyStressor(rng, nodes, edges, arrival_rate, forced_type) {
       old_value: old_hr,
       new_value: 0,
     };
+  } else if (type === "AGGRESSIVE_RETRIES") {
+    // Pick a SYNC edge. Set its timeout well below the target's processing
+    // latency so it fires on every call. Zero-backoff retries (max_retries: 3)
+    // flood the downstream without holding the upstream slot.
+    const ar_sync_edges = edges.filter((e) => e.mode === "SYNC");
+    const edge = pick(rng, ar_sync_edges);
+    const target_node = nodes.find((n) => n.id === edge.target_id);
+    const old_v = edge.timeout_ticks;
+    const new_v = Math.max(
+      1,
+      Math.floor(target_node.local_latency_ticks * 0.4),
+    );
+    edges.find(
+      (e) => e.source_id === edge.source_id && e.target_id === edge.target_id,
+    ).timeout_ticks = new_v;
+    const src_name = nodes.find((n) => n.id === edge.source_id).name;
+    description =
+      `${src_name} is misconfigured with zero-backoff retries and a tight timeout ` +
+      `of ${new_v} ticks (downstream latency: ${target_node.local_latency_ticks} ticks). ` +
+      `Every timed-out call immediately fires a fresh retry without waiting, ` +
+      `multiplying load on ${target_node.name} up to 4×.`;
+    mutation = {
+      type,
+      edge,
+      property: "timeout_ticks",
+      old_value: old_v,
+      new_value: new_v,
+      max_retries: 3,
+    };
   } else {
     // QUOTA_IDENTITY_BUG
     // Collapse a node's generous per-caller bucket into a tiny shared-identity bucket.
@@ -464,14 +496,14 @@ function buildExplanation(failure, events, nodes_map, stressor) {
     stressor.type === "CONCURRENCY_CRUSH"
   ) {
     return prior_timeouts.length
-      ? `The degraded downstream node held upstream SYNC slots for far longer than usual, preventing ${failed_node} from accepting new tokens until its queue was exhausted.`
+      ? `The degraded downstream node held upstream SYNC slots for far longer than usual, preventing ${failed_node} from accepting new requests until its queue was exhausted.`
       : `Reduced throughput at the bottleneck caused ${failed_node}'s queue to fill faster than it could drain under the sustained load.`;
   }
   if (stressor.type === "ARRIVAL_SPIKE") {
     return `The ${stressor.mutation.new_value / stressor.mutation.old_value}× surge in traffic exceeded the system's sustainable capacity. ${failed_node} hit its queue limit first because it is the tightest bottleneck in the path.`;
   }
   if (stressor.type === "TIMEOUT_TRAP") {
-    return `After repeated SYNC timeouts, ${failed_node}'s queue filled with tokens that could not complete — each held an upstream slot and blocked further progress until the buffer was exhausted.`;
+    return `After repeated SYNC timeouts, ${failed_node}'s queue filled with requests that could not complete — each held an upstream slot and blocked further progress until the buffer was exhausted.`;
   }
 
   if (stressor.type === "NETWORK_PARTITION") {
@@ -484,6 +516,17 @@ function buildExplanation(failure, events, nodes_map, stressor) {
       `and waited the full ${stressor.mutation.edge.timeout_ticks} ticks on every SYNC call. ` +
       `With all concurrency slots occupied by calls that would never complete, ` +
       `${failed_node}'s queue filled and began dropping requests.`
+    );
+  }
+
+  if (stressor.type === "AGGRESSIVE_RETRIES") {
+    const mult = stressor.mutation.max_retries + 1;
+    return (
+      `Each of ${failed_node}'s callers timed out and immediately fired a fresh retry without waiting. ` +
+      `With ${stressor.mutation.max_retries} retries per call and zero backoff, ` +
+      `each original request generated up to ${mult}× the downstream traffic. ` +
+      `This ${mult}× amplification overwhelmed ${failed_node}'s queue within ${failure.tick} ticks ` +
+      `despite the entry arrival rate being unchanged.`
     );
   }
 
@@ -571,10 +614,21 @@ function generateScenario(seed) {
     const applied = applyStressor(rng, nodes, edges, arrival_rate, forced_type);
     if (!applied) return null; // stressor not applicable (e.g. QUOTA_IDENTITY_BUG with no buckets)
 
-    // TIMEOUT_TRAP: enable retries so the slot is held for T + 2T + 4T ticks
-    // (exponential backoff) before DEADLINE_EXCEEDED fires when retries are
-    // exhausted. Other stressors cause QUEUE_DROP without retries.
-    const max_retries = applied.stressor.type === "TIMEOUT_TRAP" ? 2 : 0;
+    // TIMEOUT_TRAP: exponential backoff, slot held throughout → DEADLINE_EXCEEDED.
+    // AGGRESSIVE_RETRIES: immediate retry, slot released → downstream QUEUE_DROP.
+    // Other stressors: no retries.
+    const max_retries =
+      applied.stressor.type === "TIMEOUT_TRAP"
+        ? 2
+        : applied.stressor.type === "AGGRESSIVE_RETRIES"
+          ? 3
+          : 0;
+    const retry_mode =
+      applied.stressor.type === "TIMEOUT_TRAP"
+        ? "exponential"
+        : applied.stressor.type === "AGGRESSIVE_RETRIES"
+          ? "immediate"
+          : "none";
     const deadline_ticks = 0; // retry-count budget only, no wall-clock deadline
 
     const sim = new Simulator({
@@ -584,6 +638,7 @@ function generateScenario(seed) {
       arrival_rate: applied.stressed_arrival_rate,
       deadline_ticks,
       max_retries,
+      retry_mode,
     });
     const r = sim.run(600);
     // Prefer the terminal failure (DEADLINE_EXCEEDED or QUEUE_DROP) as the quiz
@@ -594,6 +649,7 @@ function generateScenario(seed) {
       result: r,
       quiz_event: qe,
       max_retries,
+      retry_mode,
       deadline_ticks,
     };
   }
@@ -618,6 +674,7 @@ function generateScenario(seed) {
     result,
     quiz_event,
     max_retries,
+    retry_mode,
     deadline_ticks,
   } = best;
   const nodes_map = Object.fromEntries(stressed_nodes.map((n) => [n.id, n]));
@@ -638,6 +695,7 @@ function generateScenario(seed) {
     stressor,
     // Retry / deadline policy active for this scenario
     max_retries,
+    retry_mode,
     deadline_ticks,
     // Stressed config (for reference / replay)
     stressed_nodes,

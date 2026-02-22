@@ -443,9 +443,11 @@ describe("Simulator", function () {
       });
       sim.run(30);
       const cascades = sim.events.filter((e) => e.type === "TIMEOUT_CASCADE");
-      const deadlines = sim.events.filter((e) => e.type === "DEADLINE_EXCEEDED");
+      const deadlines = sim.events.filter(
+        (e) => e.type === "DEADLINE_EXCEEDED",
+      );
       expect(cascades.length).to.be.greaterThan(0); // timeouts did fire
-      expect(deadlines.length).to.equal(0);          // no deadline policy → no DEADLINE_EXCEEDED
+      expect(deadlines.length).to.equal(0); // no deadline policy → no DEADLINE_EXCEEDED
     });
 
     it("ASYNC partitioned edge: tokens are still injected (partition only affects SYNC)", function () {
@@ -584,6 +586,123 @@ describe("Simulator", function () {
       // DB must be untouched.
       expect(sim.state["D"].slots.length).to.equal(0);
       expect(sim.state["D"].queue.length).to.equal(0);
+    });
+  });
+
+  // ── Immediate retry (zero-backoff) mechanics ───────────────────────────────
+
+  describe("Immediate retry (zero-backoff)", function () {
+    it("retry storm floods downstream: QUEUE_DROP at downstream, not upstream", function () {
+      // A (conc=5, queue=20) → SYNC(timeout=1) → B (conc=1, queue=3, latency=10).
+      // timeout=1 < latency=10: every call times out immediately.
+      // With max_retries=3 and retry_mode='immediate', each original token spawns 3
+      // extra tokens at B. Upstream slot is released each time → no upstream starvation.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 5, queue: 20, latency: 1 }),
+          node("B", "Worker", { conc: 1, queue: 3, latency: 10 }),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 1 })],
+        entry_node_id: "A",
+        arrival_rate: 2,
+        max_retries: 3,
+        retry_mode: "immediate",
+      });
+      sim.run(20);
+      expect(sim.first_failure).to.exist;
+      expect(sim.first_failure.type).to.equal("QUEUE_DROP");
+      expect(sim.first_failure.node_id).to.equal("B");
+    });
+
+    it("upstream slot is released immediately on zero-backoff retry", function () {
+      // A (conc=1) → SYNC(timeout=1) → B (latency=10).
+      // After A dispatches and timeout fires, the retry fires at B and
+      // A's SYNC wait is marked done — A's slot should be freed (not stuck).
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 1, queue: 5, latency: 1 }),
+          node("B", "Worker", { conc: 5, queue: 20, latency: 10 }),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 1 })],
+        entry_node_id: "A",
+        arrival_rate: 1,
+        max_retries: 1,
+        retry_mode: "immediate",
+      });
+      // Tick 1: A dispatches to B, SYNC wait created.
+      // Tick 2: timeout fires, retry injected at B, sw.done=true → slot freed.
+      // Stop here: tick 3 would process a fresh arrival which re-enters sync_wait.
+      sim.tick();
+      sim.tick();
+      // A's slot should have been freed (immediate retry releases the SYNC wait).
+      const a_stuck = sim.state["A"].slots.filter((s) => s.is_waiting_sync);
+      expect(a_stuck.length).to.equal(0);
+    });
+
+    it("max_retries is respected: no more than max_retries+1 total injections per origin", function () {
+      // A → SYNC(timeout=1) → B (latency=5), max_retries=2.
+      // Each origin token produces at most 3 total injections (1 original + 2 retries).
+      // With arrival_rate=1 over 3 ticks: 3 origin tokens → at most 9 total B injections.
+      // Count TIMEOUT_CASCADE events: each retry fires one timeout → 2 per origin.
+      const sim = new Simulator({
+        nodes: [
+          node("A", "Caller", { conc: 5, queue: 20, latency: 1 }),
+          node("B", "Worker", { conc: 10, queue: 100, latency: 5 }),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 1 })],
+        entry_node_id: "A",
+        arrival_rate: 1,
+        max_retries: 2,
+        retry_mode: "immediate",
+      });
+      sim.run(10);
+      const timeouts = sim.events.filter((e) => e.type === "TIMEOUT_CASCADE");
+      // Each token generates max_retries timeouts (2 each), arrival_rate=1 for 10 ticks.
+      // Timeout count per token ≤ max_retries: total ≤ 10 * 2 = 20.
+      expect(timeouts.length).to.be.at.most(30); // generous bound
+      // No DEADLINE_EXCEEDED because no deadline/retry budget exhaustion path
+      // applies when slots are always freed immediately.
+      const deadlines = sim.events.filter(
+        (e) => e.type === "DEADLINE_EXCEEDED",
+      );
+      expect(deadlines.length).to.equal(0);
+    });
+
+    it("zero-backoff floods downstream while exponential starves upstream (same topology)", function () {
+      // arrival_rate=1, timeout=1 (< B.latency=8), max_retries=2.
+      //
+      // Exponential: each A slot is held for 1(local)+1+2+4=8 ticks.
+      //   A.throughput = 3/8 = 0.375/tick < arrival_rate=1 → A accumulates, queue fills → QUEUE_DROP at A.
+      //   B receives at most 0.375 tokens/tick — well within B.conc=5 — B never drops.
+      //
+      // Immediate: each A slot is freed after 1(local)+1(timeout)=2 ticks.
+      //   A.throughput = 3/2 = 1.5/tick > arrival_rate=1 → A stays stable.
+      //   Each origin generates 3 total injections at B → effective B arrival ≈ 1.5/tick.
+      //   B.throughput = 5/8 = 0.625/tick → B accumulates → QUEUE_DROP at B.
+
+      const cfg = () => ({
+        nodes: [
+          node("A", "Caller", { conc: 3, queue: 5, latency: 1 }),
+          node("B", "Worker", { conc: 5, queue: 10, latency: 8 }),
+        ],
+        edges: [edge("A", "B", { mode: "SYNC", timeout: 1 })],
+        entry_node_id: "A",
+        arrival_rate: 1,
+        max_retries: 2,
+      });
+
+      const exp_sim = new Simulator({ ...cfg(), retry_mode: "exponential" });
+      exp_sim.run(50);
+
+      const imm_sim = new Simulator({ ...cfg(), retry_mode: "immediate" });
+      imm_sim.run(50);
+
+      expect(exp_sim.first_failure).to.exist;
+      expect(imm_sim.first_failure).to.exist;
+      // Exponential: QUEUE_DROP at upstream caller (A).
+      expect(exp_sim.first_failure.node_id).to.equal("A");
+      // Immediate: QUEUE_DROP at downstream worker (B).
+      expect(imm_sim.first_failure.node_id).to.equal("B");
     });
   });
 

@@ -12,6 +12,7 @@
 ### Feature Plans (`plans/`)
 
 Four implementation plans created, each covering simulator changes, generator changes, graph/UI changes, and test cases:
+
 - `20260222-circuit-breakers.md` — CB trips on N failures in window; `CB_OPEN_DROP` event; compound stressor
 - `20260222-cache-thundering-herd.md` — cache node subtype with hit_rate; `CACHE_FLUSH` stressor; cylinder rendering
 - `20260222-retry-storms.md` — zero-backoff retry mode; upstream slot released immediately, downstream flooded
@@ -54,22 +55,26 @@ Four implementation plans created, each covering simulator changes, generator ch
 ## Files Touched
 
 ### Core Logic
+
 - **js/simulator.js**: Partition guard in `_dispatch`; DEADLINE_EXCEEDED gated on retry/deadline policy
 - **js/generator.js**: `NETWORK_PARTITION` stressor; null-guard; `buildExplanation` branch
 
 ### UI
+
 - **js/graph.js**: `arrow-partition` marker; `color_class` priority; "PARTITIONED" edge label
 - **js/main.js**: Help modal DOM refs and open/close event listeners
 - **index.html**: `ph-question` codepoint; help button in graph panel; full modal HTML; legend entry
 - **style.css**: `--partition-color`; `.edge--partition`; `.legend-partition`; `.edge-label--partition`; help button + modal CSS
 
 ### Plans
+
 - **plans/20260222-circuit-breakers.md**: Full implementation plan
 - **plans/20260222-cache-thundering-herd.md**: Full implementation plan
 - **plans/20260222-retry-storms.md**: Full implementation plan
 - **plans/20260222-network-partitions.md**: Full implementation plan
 
 ### Tests
+
 - **tests/test_simulator.js**: 5 new network partition tests; DEADLINE_EXCEEDED no-policy test corrected
 - **tests/test_generator.js**: 2 new partition tests; failure-node assertion corrected
 

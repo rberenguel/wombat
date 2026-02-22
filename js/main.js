@@ -67,9 +67,11 @@ function loadScenario(seed) {
   $stressor.textContent = scenario.stressor.description;
   $arrival.textContent = `Arrival rate: ${scenario.stressed_arrival_rate} requests/tick`;
   const retry_str =
-    scenario.max_retries > 0
-      ? `retries: ${scenario.max_retries} (exp. backoff)`
-      : "retries: none";
+    scenario.retry_mode === "immediate"
+      ? `retries: ${scenario.max_retries} (zero backoff — storm mode)`
+      : scenario.max_retries > 0
+        ? `retries: ${scenario.max_retries} (exp. backoff)`
+        : "retries: none";
   $policy.textContent = `SYNC calls: per-edge timeout · ${retry_str} · no time deadline`;
 
   // Graph.
@@ -192,8 +194,12 @@ $type_btns.forEach((b) =>
 $submit.addEventListener("click", submitGuess);
 $next.addEventListener("click", () => loadScenario());
 
-$help_btn.addEventListener("click", () => { $help_overlay.classList.add("is-open"); });
-$help_close.addEventListener("click", () => { $help_overlay.classList.remove("is-open"); });
+$help_btn.addEventListener("click", () => {
+  $help_overlay.classList.add("is-open");
+});
+$help_close.addEventListener("click", () => {
+  $help_overlay.classList.remove("is-open");
+});
 $help_overlay.addEventListener("click", (e) => {
   if (e.target === $help_overlay) $help_overlay.classList.remove("is-open");
 });
@@ -218,7 +224,13 @@ const $intro = document.getElementById("intro-screen");
 document.getElementById("intro-begin-btn").addEventListener("click", () => {
   $intro.classList.add("hidden");
   // Remove from tab order after transition.
-  $intro.addEventListener("transitionend", () => { $intro.style.display = "none"; }, { once: true });
+  $intro.addEventListener(
+    "transitionend",
+    () => {
+      $intro.style.display = "none";
+    },
+    { once: true },
+  );
 });
 
 loadScenario(seedFromHash());

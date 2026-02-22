@@ -64,6 +64,7 @@ class Simulator {
     this.arrival_rate = cfg.arrival_rate;
     this.deadline_ticks = cfg.deadline_ticks ?? 0;
     this.max_retries = cfg.max_retries ?? 0;
+    this.retry_mode = cfg.retry_mode ?? "none"; // 'none' | 'exponential' | 'immediate'
 
     this.state = Object.fromEntries(
       cfg.nodes.map((n) => [n.id, new NodeState()]),
@@ -172,7 +173,7 @@ class Simulator {
     const def = this.nodes[node_id];
     if (def.node_subtype !== "cache" || def.hit_rate == null) return false;
     const num = parseInt(String(token.id).split(":")[0], 10);
-    return (num % 1000) < def.hit_rate * 1000;
+    return num % 1000 < def.hit_rate * 1000;
   }
 
   // Called when local processing finishes. Dispatches to downstream nodes.
@@ -304,12 +305,26 @@ class Simulator {
                 slot.token.retry_count < slot.token.max_retries &&
                 slot.token.deadline_remaining > 0
               ) {
-                // Exponential backoff: each retry doubles the wait before
-                // the next attempt (2^n × original timeout). The upstream
-                // slot is held throughout, amplifying backpressure.
                 slot.token.retry_count++;
-                sw.timeout_remaining =
-                  sw.edge.timeout_ticks * Math.pow(2, slot.token.retry_count);
+
+                if (this.retry_mode === "immediate") {
+                  // Zero-backoff: release the upstream SYNC wait immediately
+                  // and fire a fresh token at the downstream right now.
+                  // The upstream slot is freed; the downstream gets flooded.
+                  const retry_token = new Token(
+                    `${slot.token.id}:r${slot.token.retry_count}`,
+                    slot.token.deadline_remaining,
+                    slot.token.max_retries - slot.token.retry_count,
+                  );
+                  this._inject(sw.edge.target_id, retry_token);
+                  sw.done = true; // release upstream SYNC wait
+                } else {
+                  // Exponential backoff: each retry doubles the wait before
+                  // the next attempt (2^n × original timeout). The upstream
+                  // slot is held throughout, amplifying backpressure.
+                  sw.timeout_remaining =
+                    sw.edge.timeout_ticks * Math.pow(2, slot.token.retry_count);
+                }
               } else if (this.max_retries > 0 || this.deadline_ticks > 0) {
                 // A retry budget or wall-clock deadline was configured and is
                 // now exhausted — this is a true DEADLINE_EXCEEDED.

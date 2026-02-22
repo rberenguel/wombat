@@ -29,12 +29,12 @@ on that node is tripped. This is the quiz answer for CB-related scenarios. New q
 ```js
 class NodeState {
   constructor() {
-    this.slots  = [];
-    this.queue  = [];
+    this.slots = [];
+    this.queue = [];
     // Circuit breaker state
     this.cb_failure_ticks = []; // ring of tick numbers when a failure was recorded
-    this.cb_tripped       = false;
-    this.cb_cooldown      = 0;  // ticks remaining in open state before half-open attempt
+    this.cb_tripped = false;
+    this.cb_cooldown = 0; // ticks remaining in open state before half-open attempt
   }
 }
 ```
@@ -46,14 +46,14 @@ After the token-bucket check and before the queue/slot logic:
 ```js
 if (def.circuit_breaker && ns.cb_tripped) {
   for (const ack of token.release_acks) ack.done = true; // release upstream SYNC slot
-  this._log('CB_OPEN_DROP', node_id, token, `${def.name} circuit open`);
+  this._log("CB_OPEN_DROP", node_id, token, `${def.name} circuit open`);
   return;
 }
 ```
 
 ### `_record_cb_failure(node_id)` — new helper
 
-Called whenever a TIMEOUT_CASCADE fires on a SYNC wait *targeting* this node (i.e. the
+Called whenever a TIMEOUT_CASCADE fires on a SYNC wait _targeting_ this node (i.e. the
 node that didn't respond in time). Maintains a sliding window:
 
 ```js
@@ -108,9 +108,9 @@ this._record_cb_failure(sw.edge.target_id);
 
 ```js
 node.circuit_breaker = {
-  threshold:     N,   // number of failures in window to trip
-  window_ticks:  W,   // sliding window size
-  cooldown_ticks: C,  // how long the breaker stays open before half-open attempt
+  threshold: N, // number of failures in window to trip
+  window_ticks: W, // sliding window size
+  cooldown_ticks: C, // how long the breaker stays open before half-open attempt
 };
 ```
 
@@ -122,14 +122,14 @@ no hold-time effect to demonstrate):
 ```js
 function assignCircuitBreakers(rng, nodes, edges) {
   const sync_targets = new Set(
-    edges.filter(e => e.mode === 'SYNC').map(e => e.target_id)
+    edges.filter((e) => e.mode === "SYNC").map((e) => e.target_id),
   );
   for (const node of nodes.slice(1)) {
     if (!sync_targets.has(node.id)) continue;
     if (rng() < 0.25) {
       node.circuit_breaker = {
-        threshold:     randInt(rng, 3, 6),
-        window_ticks:  randInt(rng, 20, 40),
+        threshold: randInt(rng, 3, 6),
+        window_ticks: randInt(rng, 20, 40),
         cooldown_ticks: randInt(rng, 30, 60),
       };
     }
@@ -178,18 +178,20 @@ the over-sensitive breaker.
 
 ```js
 // CIRCUIT_BREAKER_FLAP
-const answer_type = 'CB_OPEN_DROP';
+const answer_type = "CB_OPEN_DROP";
 const answer_node = target.id; // the node whose breaker tripped
 ```
 
 ### `buildExplanation` addition
 
 ```js
-if (failure.type === 'CB_OPEN_DROP') {
-  return `${failed_node}'s circuit breaker tripped after ${stressor.mutation.new_value} failure(s) ` +
+if (failure.type === "CB_OPEN_DROP") {
+  return (
+    `${failed_node}'s circuit breaker tripped after ${stressor.mutation.new_value} failure(s) ` +
     `within the observation window. For the next ${nodes_map[failure.node_id].circuit_breaker.cooldown_ticks} ticks ` +
     `all incoming requests were fast-failed, severing the downstream path and causing ` +
-    `upstream queues to fill with error responses.`;
+    `upstream queues to fill with error responses.`
+  );
 }
 ```
 
@@ -246,7 +248,7 @@ case 'CB_OPEN_DROP': return 'Circuit Open';
 
 - **CB only trips on SYNC timeout cascades** reaching its target. QUEUE_DROPs and
   RATE_LIMIT_DROPs at other nodes should not influence the CB counter — only timeouts
-  experienced by SYNC waiters *pointing at* this node.
+  experienced by SYNC waiters _pointing at_ this node.
 - **Cooldown must be long enough** that the scenario ends before the breaker resets — otherwise
   the system might recover mid-run and no terminal event fires. Set `cooldown_ticks ≥ 80` in
   the stressor to guarantee the scenario window (600 ticks) sees the full open period.

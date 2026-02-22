@@ -128,7 +128,9 @@ body {
   font-weight: 700;
   letter-spacing: 0.1em;
   cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
+  transition:
+    border-color 0.15s,
+    color 0.15s;
 }
 .intro-begin-btn:hover {
   border-color: var(--accent);

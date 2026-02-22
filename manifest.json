@@ -1,8 +1,8 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "name": "WoMbat",
   "short_name": "WoMbat",
-  "description": "Wheel of Misfortune — train your SRE instincts by diagnosing procedurally generated distributed system failures.",
+  "description": "Distributed systems failure puzzles",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0d1117",
